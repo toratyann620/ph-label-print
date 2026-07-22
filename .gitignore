@@ -13,3 +13,5 @@ input/
 logs/
 sample/
 yamato_last_requests.json
+windows/run/
+tools/

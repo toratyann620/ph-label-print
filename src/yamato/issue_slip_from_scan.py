@@ -21,6 +21,7 @@ CLI実行例:
 import asyncio
 import glob
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -93,7 +94,14 @@ def _apply_store_settings(yamato_req, store_name: str):
 
 
 def print_pdf(pdf_path: str, printer_name: str | None = None) -> tuple[bool, str]:
-    """送り状PDFをプリンターへ送る（macOS/Linuxの lp コマンドを使用）。printer_name未指定時はシステムの既定プリンターを使う"""
+    """送り状PDFをプリンターへ送る。printer_name未指定時はシステムの既定プリンターを使う"""
+    if platform.system() == "Windows":
+        return _print_pdf_windows(pdf_path, printer_name)
+    return _print_pdf_unix(pdf_path, printer_name)
+
+
+def _print_pdf_unix(pdf_path: str, printer_name: str | None) -> tuple[bool, str]:
+    """macOS/Linux: CUPSの lp コマンドを使用"""
     cmd = ["lp"]
     if printer_name:
         cmd += ["-d", printer_name]
@@ -104,6 +112,36 @@ def print_pdf(pdf_path: str, printer_name: str | None = None) -> tuple[bool, str
         return result.returncode == 0, message
     except Exception as e:
         return False, str(e)
+
+
+def _print_pdf_windows(pdf_path: str, printer_name: str | None) -> tuple[bool, str]:
+    """
+    Windows印刷。
+    1. SumatraPDF（環境変数 SUMATRA_PDF_PATH、または tools/SumatraPDF.exe）があればそれを使う（推奨・最も確実）
+       https://www.sumatrapdfreader.org/ （無料・ポータブル版で可）
+    2. 無ければ pywin32 の ShellExecute(printto) にフォールバック（既定のPDFビューアの対応状況に依存するため非推奨）
+    """
+    sumatra = os.getenv("SUMATRA_PDF_PATH") or os.path.join(PROJECT_ROOT, "tools", "SumatraPDF.exe")
+    if os.path.exists(sumatra):
+        cmd = [sumatra, "-silent", "-exit-when-done"]
+        cmd += ["-print-to", printer_name] if printer_name else ["-print-to-default"]
+        cmd.append(pdf_path)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            message = (result.stdout or result.stderr or "SumatraPDFで印刷指示を送信しました").strip()
+            return result.returncode == 0, message
+        except Exception as e:
+            return False, f"SumatraPDF実行エラー: {e}"
+
+    try:
+        import win32api
+        if printer_name:
+            win32api.ShellExecute(0, "printto", pdf_path, f'"{printer_name}"', ".", 0)
+        else:
+            win32api.ShellExecute(0, "print", pdf_path, None, ".", 0)
+        return True, "既定のPDFビューア経由で印刷指示を送信しました（SumatraPDF未導入のためフォールバック実行）"
+    except Exception as e:
+        return False, f"Windows印刷に失敗しました。SumatraPDFの導入を推奨します: {e}"
 
 
 async def issue_yamato_pdf(client: httpx.AsyncClient, store_name: str, order_no: str, yamato_req) -> tuple[bool, dict]:
