@@ -51,6 +51,18 @@ python -m venv .venv
 
 ---
 
+## 4.5. 初回PINの発行（重要）
+
+管理画面（`/admin`）・スマホスキャン画面（`/scan`）はどちらもPIN認証で保護されています。初回のみ、以下のコマンドでPINを発行してください（発行後は`/admin/settings`から変更できます）。
+
+```powershell
+.venv\Scripts\python.exe scripts\init_pins.py
+```
+
+表示された「管理画面PIN」「スマホスキャンPIN」を控えておいてください。
+
+---
+
 ## 5. プリンター設定の確認
 
 Windowsの「設定 > Bluetoothとデバイス > プリンターとスキャナー」で、実際に使うプリンターの**正確な名前**を確認してください。

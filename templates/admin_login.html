@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ログイン | 管理画面</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Hiragino Sans', sans-serif; background: #1a1a2e; color: #222;
+    min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .card { background: #fff; border-radius: 14px; padding: 32px 26px; width: 100%; max-width: 340px; box-shadow: 0 8px 30px rgba(0,0,0,.3); }
+  h1 { font-size: 17px; font-weight: 700; margin-bottom: 6px; color: #1a1a2e; }
+  p.sub { font-size: 13px; color: #777; margin-bottom: 24px; }
+  input[type=text], input[type=tel] {
+    width: 100%; padding: 14px; font-size: 22px; letter-spacing: .3em; text-align: center;
+    border: 2px solid #ddd; border-radius: 8px; margin-bottom: 16px;
+  }
+  input:focus { outline: none; border-color: #1a1a2e; }
+  button {
+    width: 100%; padding: 14px; background: #e8401c; color: #fff; border: none; border-radius: 8px;
+    font-size: 16px; font-weight: 700; cursor: pointer;
+  }
+  button:active { background: #c0320e; }
+  .error { background: #fdeceb; color: #c0321a; font-size: 13px; padding: 10px 12px; border-radius: 6px; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>管理画面ログイン</h1>
+    <p class="sub">PINコードを入力してください</p>
+    {% if error %}<div class="error">PINが違います。もう一度お試しください。</div>{% endif %}
+    <form method="post" action="/admin/login">
+      <input type="tel" inputmode="numeric" name="pin" placeholder="••••" autofocus required>
+      <button type="submit">ログイン</button>
+    </form>
+  </div>
+</body>
+</html>

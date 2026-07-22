@@ -49,6 +49,8 @@ APP_SETTINGS_DEFAULTS = {
     "issue_tag":      "ヤマト送り状発行済み",
     "scan_pin":       "",   # スマホQRスキャン画面のPIN（設定画面で変更可能）
     "scan_secret":    "",   # PIN認証Cookie署名用の秘密鍵（自動生成）
+    "admin_pin":      "",   # 管理画面(/admin)のPIN
+    "admin_secret":   "",   # 管理画面PIN認証Cookie署名用の秘密鍵（自動生成）
 }
 
 

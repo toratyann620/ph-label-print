@@ -120,13 +120,39 @@ async def shopify_order_webhook(order: ShopifyOrder):
 SETTINGS_FIELDS = ["sender_name", "sender_zip", "sender_address", "sender_address2", "sender_phone", "sender_email", "printer_name"]
 
 
+def _require_admin(request: Request) -> RedirectResponse | None:
+    """未認証なら /admin/login へのリダイレクトを返す。認証済みなら None。"""
+    if not scan_auth.is_authorized(request, realm="admin"):
+        return RedirectResponse(url="/admin/login")
+    return None
+
+
+@app.get("/admin/login", response_class=HTMLResponse, include_in_schema=False)
+async def admin_login_page(request: Request, error: str = ""):
+    return templates.TemplateResponse("admin_login.html", {"request": request, "error": error})
+
+
+@app.post("/admin/login", include_in_schema=False)
+async def admin_login_submit(pin: str = Form(...)):
+    expected_pin = db.get_app_settings()["admin_pin"]
+    if not expected_pin or pin != expected_pin:
+        return RedirectResponse(url="/admin/login?error=1", status_code=303)
+    response = RedirectResponse(url="/admin/processing", status_code=303)
+    scan_auth.set_auth_cookie(response, realm="admin")
+    return response
+
+
 @app.get("/admin", include_in_schema=False)
-async def admin_root():
+async def admin_root(request: Request):
+    if (redirect := _require_admin(request)) is not None:
+        return redirect
     return RedirectResponse(url="/admin/processing")
 
 
 @app.get("/admin/processing", response_class=HTMLResponse)
 async def admin_processing(request: Request, synced: str = "", issued: str = "", scanned: str = ""):
+    if (redirect := _require_admin(request)) is not None:
+        return redirect
     sync_result = None
     try:
         sync_result = await order_sync.sync_recent_orders()
@@ -143,8 +169,10 @@ async def admin_processing(request: Request, synced: str = "", issued: str = "",
 
 
 @app.post("/admin/issue", include_in_schema=False)
-async def admin_issue(order_ids: list[int] = Form(...)):
+async def admin_issue(request: Request, order_ids: list[int] = Form(...)):
     """手動発行モード：処理状況一覧でチェックした注文の送り状をまとめて発行する"""
+    if (redirect := _require_admin(request)) is not None:
+        return redirect
     orders = db.get_orders_cache_by_ids(order_ids)
     count = 0
     for order in orders:
@@ -154,14 +182,18 @@ async def admin_issue(order_ids: list[int] = Form(...)):
 
 
 @app.post("/admin/scan", include_in_schema=False)
-async def admin_scan():
+async def admin_scan(request: Request):
     """自動発行モードの代替：スキャンフォルダを今すぐ読み取り、送り状発行までまとめて実行する"""
+    if (redirect := _require_admin(request)) is not None:
+        return redirect
     results = await scan_folder_and_issue()
     return RedirectResponse(url=f"/admin/processing?scanned={len(results)}", status_code=303)
 
 
 @app.get("/admin/pdf/{record_id}")
-async def admin_pdf(record_id: int):
+async def admin_pdf(request: Request, record_id: int):
+    if (redirect := _require_admin(request)) is not None:
+        return redirect
     record = db.get_shipment(record_id)
     if not record or not record.get("pdf_path") or not os.path.exists(record["pdf_path"]):
         raise HTTPException(status_code=404, detail="PDFが見つかりません")
@@ -170,6 +202,8 @@ async def admin_pdf(record_id: int):
 
 @app.get("/admin/history", response_class=HTMLResponse)
 async def admin_history(request: Request):
+    if (redirect := _require_admin(request)) is not None:
+        return redirect
     rows = db.list_shipments(statuses=["done"])
     return templates.TemplateResponse("admin/history.html", {
         "request": request, "active": "history", "counts": _nav_counts(),
@@ -179,6 +213,8 @@ async def admin_history(request: Request):
 
 @app.get("/admin/errors", response_class=HTMLResponse)
 async def admin_errors(request: Request):
+    if (redirect := _require_admin(request)) is not None:
+        return redirect
     rows = db.list_shipments(statuses=list(db.ERROR_STATUSES))
     return templates.TemplateResponse("admin/errors.html", {
         "request": request, "active": "errors", "counts": _nav_counts(),
@@ -188,6 +224,8 @@ async def admin_errors(request: Request):
 
 @app.get("/admin/settings", response_class=HTMLResponse)
 async def admin_settings(request: Request, saved: str = ""):
+    if (redirect := _require_admin(request)) is not None:
+        return redirect
     settings_by_store = {s["store"]: s for s in db.list_store_settings()}
     stores = [
         {"store": store, **{f: (settings_by_store.get(store, {}) or {}).get(f, "") for f in SETTINGS_FIELDS}}
@@ -201,6 +239,7 @@ async def admin_settings(request: Request, saved: str = ""):
 
 @app.post("/admin/settings", include_in_schema=False)
 async def admin_settings_save(
+    request: Request,
     store: str = Form(...),
     sender_name: str = Form(""),
     sender_zip: str = Form(""),
@@ -210,6 +249,8 @@ async def admin_settings_save(
     sender_email: str = Form(""),
     printer_name: str = Form(""),
 ):
+    if (redirect := _require_admin(request)) is not None:
+        return redirect
     if store not in STORE_CANDIDATES:
         raise HTTPException(status_code=400, detail=f"不明なストアです: {store}")
     db.upsert_store_settings(
@@ -227,13 +268,17 @@ async def admin_settings_save(
 
 @app.post("/admin/settings/global", include_in_schema=False)
 async def admin_settings_global_save(
+    request: Request,
     issue_mode: str = Form("manual"),
     scan_folder: str = Form("input"),
     output_folder: str = Form("output"),
     archive_folder: str = Form("output/archive"),
     issue_tag: str = Form(""),
     scan_pin: str = Form(""),
+    admin_pin: str = Form(""),
 ):
+    if (redirect := _require_admin(request)) is not None:
+        return redirect
     if issue_mode not in ("manual", "auto"):
         raise HTTPException(status_code=400, detail=f"不明な発行モードです: {issue_mode}")
     db.set_app_settings(
@@ -243,6 +288,7 @@ async def admin_settings_global_save(
         archive_folder=archive_folder,
         issue_tag=issue_tag,
         scan_pin=scan_pin,
+        admin_pin=admin_pin,
     )
     return RedirectResponse(url="/admin/settings?saved=1", status_code=303)
 
