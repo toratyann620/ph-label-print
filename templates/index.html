@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ヤマト送り状自動作成</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Hiragino Sans', sans-serif; background: #f5f5f5; color: #333; }
+
+    header {
+      background: #1a1a2e; color: white;
+      padding: 16px 24px; display: flex; align-items: center; gap: 12px;
+    }
+    header h1 { font-size: 18px; font-weight: 600; }
+
+    main { max-width: 900px; margin: 32px auto; padding: 0 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+
+    .card {
+      background: white; border-radius: 8px; padding: 24px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.1);
+    }
+    .card h2 { font-size: 15px; font-weight: 600; margin-bottom: 16px; border-bottom: 2px solid #1a1a2e; padding-bottom: 8px; }
+
+    .field { margin-bottom: 14px; }
+    .field label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; }
+    .field input, .field select {
+      width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 4px;
+      font-size: 14px; transition: border-color .2s;
+    }
+    .field input:focus, .field select:focus { outline: none; border-color: #1a1a2e; }
+
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    button[type=submit] {
+      grid-column: 1 / -1;
+      width: 100%; padding: 12px; background: #e8401c; color: white;
+      border: none; border-radius: 6px; font-size: 15px; font-weight: 600;
+      cursor: pointer; transition: background .2s; margin-top: 8px;
+    }
+    button[type=submit]:hover { background: #c0320e; }
+    button[type=submit]:disabled { background: #ccc; cursor: not-allowed; }
+
+    #result-area { grid-column: 1 / -1; }
+    .result-box {
+      background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px;
+      padding: 20px; display: none;
+    }
+    .result-box.error { background: #fef2f2; border-color: #fca5a5; }
+    .result-box h3 { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+    .slip-no { font-size: 28px; font-weight: 700; color: #1a1a2e; letter-spacing: 2px; }
+    .label-link { display: inline-block; margin-top: 12px; color: #1a1a2e; font-size: 13px; }
+
+    .loading { display: none; text-align: center; padding: 16px; color: #666; }
+
+    .back-link {
+      display: inline-flex; align-items: center; gap: 6px;
+      color: white; text-decoration: none; font-size: 13px; opacity: .85;
+      padding: 6px 10px; border-radius: 6px; margin-right: 4px;
+    }
+    .back-link:hover { opacity: 1; background: rgba(255,255,255,.12); }
+  </style>
+</head>
+<body>
+
+<header>
+  <a class="back-link" href="/admin/processing">
+    <svg width="16" height="16" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24">
+      <path d="M15 18l-6-6 6-6"/>
+    </svg>
+    戻る
+  </a>
+  <svg width="24" height="24" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24">
+    <path d="M5 8h14M5 8a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2M5 8V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2"/>
+  </svg>
+  <h1>ヤマト運輸 B2クラウド 送り状自動作成</h1>
+</header>
+
+<main>
+  <form id="shipment-form" style="display: contents;">
+
+    <!-- 届先 -->
+    <div class="card">
+      <h2>届先情報</h2>
+      <div class="field">
+        <label>お名前 *</label>
+        <input type="text" name="recipient_name" value="山田 太郎" required>
+      </div>
+      <div class="field">
+        <label>郵便番号 *（例: 160-0022）</label>
+        <input type="text" name="recipient_zip" value="160-0022" required>
+      </div>
+      <div class="field">
+        <label>住所 *</label>
+        <input type="text" name="recipient_address" value="東京都新宿区新宿1-1-1" required>
+      </div>
+      <div class="field">
+        <label>電話番号 *</label>
+        <input type="text" name="recipient_phone" value="03-1234-5678" required>
+      </div>
+    </div>
+
+    <!-- 送り元 -->
+    <div class="card">
+      <h2>送り元情報</h2>
+      <div class="field">
+        <label>会社名 / お名前 *</label>
+        <input type="text" name="sender_name" value="株式会社MuOG" required>
+      </div>
+      <div class="field">
+        <label>郵便番号 *</label>
+        <input type="text" name="sender_zip" value="530-0001" required>
+      </div>
+      <div class="field">
+        <label>住所 *</label>
+        <input type="text" name="sender_address" value="大阪府大阪市北区梅田1-1-1" required>
+      </div>
+      <div class="field">
+        <label>電話番号 *</label>
+        <input type="text" name="sender_phone" value="06-1234-5678" required>
+      </div>
+    </div>
+
+    <!-- 荷物情報 -->
+    <div class="card" style="grid-column: 1 / -1;">
+      <h2>荷物情報</h2>
+      <div class="row">
+        <div class="field">
+          <label>品名 *</label>
+          <input type="text" name="item_name" value="衣類" required>
+        </div>
+        <div class="field">
+          <label>個数</label>
+          <input type="number" name="total_count" value="1" min="1">
+        </div>
+        <div class="field">
+          <label>重量 (kg)</label>
+          <input type="number" name="weight_kg" value="1.0" step="0.5" min="0.5">
+        </div>
+        <div class="field">
+          <label>サービス種別</label>
+          <select name="service_type">
+            <option value="0030">宅急便</option>
+            <option value="0060">宅急便コンパクト</option>
+            <option value="0050">ネコポス</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>発送予定日 *</label>
+          <input type="date" name="ship_date" value="{{ today }}" required>
+        </div>
+      </div>
+      <button type="submit" id="submit-btn">送り状を発行する</button>
+    </div>
+
+  </form>
+
+  <!-- ローディング -->
+  <div class="loading" id="loading">発行処理中...</div>
+
+  <!-- 結果表示 -->
+  <div id="result-area">
+    <div class="result-box" id="result-box">
+      <h3 id="result-title"></h3>
+      <div id="result-content"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+  document.getElementById('shipment-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const btn = document.getElementById('submit-btn');
+    const loading = document.getElementById('loading');
+    const box = document.getElementById('result-box');
+
+    btn.disabled = true;
+    loading.style.display = 'block';
+    box.style.display = 'none';
+
+    const form = e.target;
+    const data = {
+      recipient_name:    form.recipient_name.value,
+      recipient_zip:     form.recipient_zip.value,
+      recipient_address: form.recipient_address.value,
+      recipient_phone:   form.recipient_phone.value,
+      sender_name:       form.sender_name.value,
+      sender_zip:        form.sender_zip.value,
+      sender_address:    form.sender_address.value,
+      sender_phone:      form.sender_phone.value,
+      item_name:         form.item_name.value,
+      total_count:       parseInt(form.total_count.value),
+      weight_kg:         parseFloat(form.weight_kg.value),
+      service_type:      form.service_type.value,
+      ship_date:         form.ship_date.value,
+    };
+
+    try {
+      const res = await fetch('/api/shipment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+
+      const json = await res.json();
+
+      box.classList.remove('error');
+      if (res.ok && json.success) {
+        document.getElementById('result-title').textContent = '送り状を発行しました！';
+        document.getElementById('result-content').innerHTML = `
+          <p style="font-size:13px;color:#555;margin-bottom:6px;">伝票番号</p>
+          <div class="slip-no">${json.slip_no}</div>
+          ${json.label_url ? `<a class="label-link" href="${json.label_url}" target="_blank">ラベルを開く (PDF)</a>` : ''}
+          <pre style="margin-top:16px;font-size:11px;color:#888;background:#f9f9f9;padding:10px;border-radius:4px;overflow:auto">${JSON.stringify(json.raw, null, 2)}</pre>
+        `;
+      } else {
+        box.classList.add('error');
+        document.getElementById('result-title').textContent = 'エラーが発生しました';
+        document.getElementById('result-content').innerHTML = `<p style="color:#dc2626">${json.detail || JSON.stringify(json)}</p>`;
+      }
+    } catch (err) {
+      box.classList.add('error');
+      document.getElementById('result-title').textContent = '通信エラー';
+      document.getElementById('result-content').innerHTML = `<p style="color:#dc2626">${err.message}</p>`;
+    } finally {
+      btn.disabled = false;
+      loading.style.display = 'none';
+      box.style.display = 'block';
+    }
+  });
+</script>
+
+</body>
+</html>

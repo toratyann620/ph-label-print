@@ -1,0 +1,15 @@
+.env
+.env.test
+__pycache__/
+*.pyc
+.venv/
+venv/
+data/
+.DS_Store
+
+# 実際の顧客情報・送り状PDF・スキャン画像・リクエストログを含むため除外
+output/
+input/
+logs/
+sample/
+yamato_last_requests.json

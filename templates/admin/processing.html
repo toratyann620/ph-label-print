@@ -1,0 +1,110 @@
+{% extends "admin/base.html" %}
+{% block title %}処理状況一覧{% endblock %}
+{% block extra_head %}
+<style>
+  .mode-banner {
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+    background: #fff; border-radius: 8px; padding: 14px 20px; margin-bottom: 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  }
+  .mode-banner .mode-label { font-size: 13px; color: #444; }
+  .mode-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; margin-left: 8px; }
+  .mode-manual { background: #e8f0fe; color: #1a56c4; }
+  .mode-auto { background: #fdeeda; color: #b3590a; }
+  .action-bar { display: flex; gap: 10px; }
+  .action-btn {
+    padding: 9px 20px; background: #e8401c; color: #fff; border: none; border-radius: 6px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .action-btn:hover { background: #c0320e; }
+  .action-btn-secondary { background: #1a1a2e; }
+  .action-btn-secondary:hover { background: #2e2e48; }
+  .method-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .method-yamato { background: #fff1e6; color: #b3590a; }
+  .method-sagawa { background: #eef2ff; color: #3b3fc7; }
+  .method-other  { background: #f1f1f1; color: #777; }
+</style>
+{% endblock %}
+{% block content %}
+  <h1>処理状況一覧</h1>
+  <p class="subtitle">Shopify各ブランドの直近1週間の注文です。注文タグから発送方法を仕分けし、ヤマト分は未発行/発行済みを管理します。</p>
+
+  {% if issued %}<div class="toast">選択した {{ issued }} 件の送り状発行処理を実行しました。</div>{% endif %}
+  {% if scanned %}<div class="toast">inputフォルダの {{ scanned }} 件を読み取り、送り状発行処理を実行しました。エラー・要対応もあわせてご確認ください。</div>{% endif %}
+  {% if sync_result and sync_result.error %}<div class="toast" style="background:#fdeceb;border-color:#fca5a5;color:#c0321a;">Shopify同期でエラーが発生しました: {{ sync_result.error }}</div>{% endif %}
+
+  <div class="mode-banner">
+    <div class="mode-label">
+      発行モード:
+      {% if issue_mode == 'auto' %}
+        <span class="mode-badge mode-auto">自動発行モード</span>
+      {% else %}
+        <span class="mode-badge mode-manual">手動発行モード</span>
+      {% endif %}
+      <span style="color:#888;">— 下記2つの操作はモードに関わらずいつでも利用できます</span>
+    </div>
+    <div class="action-bar">
+      <button type="submit" form="issue-form" class="action-btn">送り状発行</button>
+      <button type="submit" form="scan-form" class="action-btn action-btn-secondary">手動読み取り</button>
+    </div>
+  </div>
+
+  <form id="scan-form" method="post" action="/admin/scan"></form>
+
+  <div class="card">
+    {% if rows %}
+    <form id="issue-form" method="post" action="/admin/issue">
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            <th>注文日</th>
+            <th>注文番号</th>
+            <th>ストア</th>
+            <th>お届け先</th>
+            <th>発送方法</th>
+            <th>ステータス</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>
+              {% if row.shipping_method == 'ヤマト' and row.yamato_status != 'issued' %}
+              <input type="checkbox" name="order_ids" value="{{ row.order_id }}" form="issue-form">
+              {% endif %}
+            </td>
+            <td>{{ row.order_created_at[:10] if row.order_created_at else '-' }}</td>
+            <td>{{ row.order_name }}</td>
+            <td>{{ row.store }}</td>
+            <td>{{ row.recipient_name or '-' }}</td>
+            <td>
+              {% if row.shipping_method == 'ヤマト' %}
+              <span class="method-badge method-yamato">ヤマト</span>
+              {% elif row.shipping_method == '佐川' %}
+              <span class="method-badge method-sagawa">佐川</span>
+              {% else %}
+              <span class="method-badge method-other">{{ row.shipping_method or 'その他' }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if row.shipping_method == 'ヤマト' %}
+                {% if row.yamato_status == 'issued' %}
+                <span class="badge-status badge-done">発行済</span>
+                {% else %}
+                <span class="badge-status badge-processing">未発行</span>
+                {% endif %}
+              {% else %}
+              <span class="badge-status" style="background:#eee;color:#777;">未処理</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </form>
+    {% else %}
+    <div class="empty">直近1週間の注文はありません。</div>
+    {% endif %}
+  </div>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "admin/base.html" %}
+{% block title %}エラー・要対応{% endblock %}
+{% block content %}
+  <h1>エラー・要対応</h1>
+  <p class="subtitle">QR読み取り失敗、Shopify注文が見つからない、ヤマトAPIエラーなど、人の対応が必要な案件です。</p>
+
+  <div class="card">
+    {% if rows %}
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>発生日時</th>
+          <th>ステータス</th>
+          <th>スキャンPDF</th>
+          <th>注文番号</th>
+          <th>ストア</th>
+          <th>エラー内容</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>{{ row.id }}</td>
+          <td>{{ row.updated_at[:19] }}</td>
+          <td><span class="badge-status badge-error">{{ status_labels.get(row.status, row.status) }}</span></td>
+          <td>{{ row.source_pdf or '-' }}</td>
+          <td>{{ row.order_name or '-' }}</td>
+          <td>{{ row.store or '-' }}</td>
+          <td>
+            <details class="raw">
+              <summary>内容を見る</summary>
+              <pre>{{ row.error_message or '' }}</pre>
+            </details>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">現在、対応が必要なエラーはありません。</div>
+    {% endif %}
+  </div>
+{% endblock %}

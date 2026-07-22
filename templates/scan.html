@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<title>送り状発行</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    height: 100%; font-family: 'Hiragino Sans', sans-serif; background: #1a1a2e; color: #fff;
+    overscroll-behavior: none;
+  }
+  body { display: flex; flex-direction: column; }
+
+  header {
+    padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 15px; font-weight: 700; }
+  header a { color: #9a9db4; font-size: 12px; text-decoration: none; }
+
+  main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; gap: 20px; position: relative; }
+
+  /* ── 初期状態: カメラ起動ボタン ── */
+  #view-idle { display: flex; flex-direction: column; align-items: center; gap: 22px; }
+  .scan-icon {
+    width: 92px; height: 92px; border-radius: 50%; background: #22223c;
+    display: flex; align-items: center; justify-content: center; font-size: 40px;
+  }
+  #view-idle p { color: #9a9db4; font-size: 13px; text-align: center; max-width: 260px; line-height: 1.7; }
+
+  .btn {
+    padding: 16px 36px; background: #e8401c; color: #fff; border: none; border-radius: 999px;
+    font-size: 16px; font-weight: 700; cursor: pointer; width: 100%; max-width: 300px;
+  }
+  .btn:active { background: #c0320e; }
+  .btn.secondary { background: #22223c; color: #fff; }
+  .btn.secondary:active { background: #2e2e48; }
+  .btn:disabled { background: #444; color: #999; }
+
+  /* ── カメラビュー ── */
+  #view-camera { display: none; width: 100%; height: 100%; position: absolute; inset: 0; }
+  #video { width: 100%; height: 100%; object-fit: cover; }
+  .viewfinder {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 68vw; height: 68vw; max-width: 320px; max-height: 320px;
+    border: 3px solid #fff; border-radius: 16px; box-shadow: 0 0 0 2000px rgba(0,0,0,.45);
+  }
+  .camera-hint {
+    position: absolute; bottom: 90px; left: 0; right: 0; text-align: center;
+    color: #fff; font-size: 13px; text-shadow: 0 1px 3px rgba(0,0,0,.6);
+  }
+  .camera-cancel {
+    position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
+  }
+
+  /* ── 確認/結果カード ── */
+  #view-result { display: none; width: 100%; max-width: 340px; }
+  .card {
+    background: #fff; color: #222; border-radius: 16px; padding: 26px 22px;
+    display: flex; flex-direction: column; gap: 18px; width: 100%;
+  }
+  .card .kicker { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #999; }
+  .card .order-name { font-size: 24px; font-weight: 800; color: #1a1a2e; }
+  .card .field { display: flex; flex-direction: column; gap: 2px; }
+  .card .field .label { font-size: 11px; color: #999; }
+  .card .field .value { font-size: 16px; font-weight: 600; color: #1a1a2e; }
+  .status-pill { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; align-self: flex-start; }
+  .status-ok { background: #e6f9ee; color: #0f8a3f; }
+  .status-warn { background: #fff6df; color: #a5720a; }
+  .status-err { background: #fdeceb; color: #c0321a; }
+  .card .btn { align-self: stretch; }
+
+  .spinner {
+    width: 34px; height: 34px; border: 3px solid rgba(255,255,255,.25); border-top-color: #e8401c;
+    border-radius: 50%; animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>送り状発行</h1>
+  <a href="/admin/processing">管理画面へ</a>
+</header>
+
+<main>
+
+  <div id="view-idle">
+    <div class="scan-icon">📷</div>
+    <p>注文明細のQRコードを読み取って、送り状を発行します。</p>
+    <button class="btn" id="btn-start">カメラ起動</button>
+  </div>
+
+  <div id="view-camera">
+    <video id="video" playsinline autoplay muted></video>
+    <div class="viewfinder"></div>
+    <div class="camera-hint">QRコードを枠内に合わせてください</div>
+    <button class="btn secondary camera-cancel" id="btn-cancel">キャンセル</button>
+  </div>
+
+  <div id="view-loading" style="display:none; flex-direction: column; align-items: center; gap: 16px;">
+    <div class="spinner"></div>
+    <p id="loading-text" style="color:#9a9db4; font-size: 13px;">確認中...</p>
+  </div>
+
+  <div id="view-result">
+    <div class="card" id="result-card"></div>
+  </div>
+
+</main>
+
+<canvas id="canvas" style="display:none;"></canvas>
+
+<script src="/static/jsQR.js"></script>
+<script>
+  const viewIdle    = document.getElementById('view-idle');
+  const viewCamera  = document.getElementById('view-camera');
+  const viewLoading = document.getElementById('view-loading');
+  const viewResult  = document.getElementById('view-result');
+  const resultCard  = document.getElementById('result-card');
+  const video       = document.getElementById('video');
+  const canvas      = document.getElementById('canvas');
+  const ctx         = canvas.getContext('2d', { willReadFrequently: true });
+
+  let stream = null;
+  let scanning = false;
+
+  function showOnly(el) {
+    [viewIdle, viewCamera, viewLoading, viewResult].forEach(v => v.style.display = 'none');
+    el.style.display = (el === viewCamera) ? 'block' : 'flex';
+  }
+
+  async function startCamera() {
+    showOnly(viewCamera);
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      video.srcObject = stream;
+      scanning = true;
+      requestAnimationFrame(scanFrame);
+    } catch (e) {
+      showOnly(viewIdle);
+      alert('カメラを起動できませんでした: ' + e.message);
+    }
+  }
+
+  function stopCamera() {
+    scanning = false;
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+    }
+  }
+
+  function scanFrame() {
+    if (!scanning) return;
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height);
+      if (code && code.data) {
+        stopCamera();
+        onDecoded(code.data.trim());
+        return;
+      }
+    }
+    requestAnimationFrame(scanFrame);
+  }
+
+  async function onDecoded(orderName) {
+    showOnly(viewLoading);
+    document.getElementById('loading-text').textContent = '注文情報を確認中...';
+    try {
+      const res = await fetch('/api/scan/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_name: orderName }),
+      });
+      if (res.status === 401) { location.href = '/scan/login'; return; }
+      const data = await res.json();
+      renderLookupResult(data);
+    } catch (e) {
+      renderError('通信エラー: ' + e.message);
+    }
+  }
+
+  function renderLookupResult(data) {
+    if (!data.found) {
+      renderError(data.error || '注文が見つかりませんでした');
+      return;
+    }
+
+    if (data.already_issued) {
+      resultCard.innerHTML = `
+        <div class="kicker">読み取り結果</div>
+        <div class="order-name">${escapeHtml(data.order_name)}</div>
+        <span class="status-pill status-warn">既に発行済みです</span>
+        <div class="field"><div class="label">お客様名</div><div class="value">${escapeHtml(data.customer_name || '-')}</div></div>
+        <div class="field"><div class="label">伝票番号</div><div class="value">${escapeHtml(data.tracking_number || '-')}</div></div>
+        <button class="btn secondary" id="btn-rescan">もう一度スキャン</button>
+      `;
+    } else {
+      resultCard.innerHTML = `
+        <div class="kicker">読み取り結果</div>
+        <div class="order-name">${escapeHtml(data.order_name)}</div>
+        <div class="field"><div class="label">お客様名</div><div class="value">${escapeHtml(data.customer_name || '-')}</div></div>
+        <div class="field"><div class="label">ストア</div><div class="value">${escapeHtml(data.store || '-')}</div></div>
+        <button class="btn" id="btn-issue">送り状発行</button>
+        <button class="btn secondary" id="btn-rescan">もう一度スキャン</button>
+      `;
+      document.getElementById('btn-issue').addEventListener('click', () => issueShipment(data.order_name));
+    }
+    document.getElementById('btn-rescan').addEventListener('click', startCamera);
+    showOnly(viewResult);
+  }
+
+  async function issueShipment(orderName) {
+    showOnly(viewLoading);
+    document.getElementById('loading-text').textContent = '送り状を発行中...（数秒かかります）';
+    try {
+      const res = await fetch('/api/scan/issue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_name: orderName }),
+      });
+      if (res.status === 401) { location.href = '/scan/login'; return; }
+      const data = await res.json();
+      renderIssueResult(orderName, data);
+    } catch (e) {
+      renderError('通信エラー: ' + e.message);
+    }
+  }
+
+  function renderIssueResult(orderName, data) {
+    if (data.status === 'done') {
+      const printed = (data.print_status || '').startsWith('ok');
+      resultCard.innerHTML = `
+        <div class="kicker">発行完了</div>
+        <div class="order-name">${escapeHtml(orderName)}</div>
+        <span class="status-pill status-ok">送り状を発行しました</span>
+        <div class="field"><div class="label">伝票番号</div><div class="value">${escapeHtml(data.tracking_number || '-')}</div></div>
+        <span class="status-pill ${printed ? 'status-ok' : 'status-warn'}">${printed ? '印刷を送信しました' : '印刷エラー: ' + escapeHtml(data.print_status || '')}</span>
+        <button class="btn" id="btn-next">次のスキャンへ</button>
+      `;
+    } else {
+      resultCard.innerHTML = `
+        <div class="kicker">発行エラー</div>
+        <div class="order-name">${escapeHtml(orderName)}</div>
+        <span class="status-pill status-err">${escapeHtml(data.status_label || 'エラー')}</span>
+        <div class="field"><div class="label">詳細</div><div class="value" style="font-size:13px;font-weight:400;">${escapeHtml(data.error_message || '')}</div></div>
+        <button class="btn" id="btn-next">次のスキャンへ</button>
+      `;
+    }
+    document.getElementById('btn-next').addEventListener('click', startCamera);
+    showOnly(viewResult);
+  }
+
+  function renderError(message) {
+    resultCard.innerHTML = `
+      <div class="kicker">エラー</div>
+      <span class="status-pill status-err">${escapeHtml(message)}</span>
+      <button class="btn" id="btn-rescan">もう一度スキャン</button>
+    `;
+    document.getElementById('btn-rescan').addEventListener('click', startCamera);
+    showOnly(viewResult);
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  document.getElementById('btn-start').addEventListener('click', startCamera);
+  document.getElementById('btn-cancel').addEventListener('click', () => { stopCamera(); showOnly(viewIdle); });
+</script>
+
+</body>
+</html>

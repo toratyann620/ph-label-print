@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}管理画面{% endblock %} | 送り状自動作成</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Hiragino Sans', sans-serif; background: #f5f6f8; color: #222; display: flex; min-height: 100vh; }
+
+  .sidebar {
+    width: 220px; flex-shrink: 0; background: #1a1a2e; color: #cfd2e0;
+    display: flex; flex-direction: column; padding: 20px 0;
+  }
+  .sidebar .brand { padding: 0 20px 20px; font-size: 14px; font-weight: 700; color: #fff; border-bottom: 1px solid #2e2e48; margin-bottom: 12px; }
+  .sidebar nav { flex: 1; }
+  .sidebar a {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 11px 20px; color: #cfd2e0; text-decoration: none; font-size: 13px;
+    border-left: 3px solid transparent;
+  }
+  .sidebar a:hover { background: #22223c; color: #fff; }
+  .sidebar a.active { background: #22223c; color: #fff; border-left-color: #e8401c; font-weight: 600; }
+  .sidebar a .badge {
+    background: #e8401c; color: #fff; font-size: 11px; padding: 1px 7px; border-radius: 999px;
+  }
+  .sidebar .foot { padding: 16px 20px 0; font-size: 11px; color: #7a7d99; border-top: 1px solid #2e2e48; margin-top: 12px; }
+
+  .content { flex: 1; padding: 32px 36px; max-width: 1200px; }
+  .content h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .content .subtitle { font-size: 13px; color: #666; margin-bottom: 24px; }
+
+  .card { background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.08); padding: 20px; margin-bottom: 20px; overflow-x: auto; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 10px 12px; color: #777; font-weight: 600; font-size: 12px; border-bottom: 1px solid #eee; white-space: nowrap; }
+  td { padding: 10px 12px; border-bottom: 1px solid #f1f1f1; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+
+  .badge-status { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .badge-done { background: #e6f9ee; color: #0f8a3f; }
+  .badge-processing { background: #fff6df; color: #a5720a; }
+  .badge-error { background: #fdeceb; color: #c0321a; }
+
+  .empty { color: #999; font-size: 13px; padding: 24px 0; text-align: center; }
+
+  details.raw summary { cursor: pointer; color: #1a1a2e; font-size: 12px; }
+  details.raw pre { margin-top: 8px; font-size: 11px; color: #666; background: #f9f9f9; padding: 10px; border-radius: 4px; overflow: auto; max-width: 560px; white-space: pre-wrap; word-break: break-all; }
+
+  .settings-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; }
+  .settings-form .field { margin-bottom: 0; }
+  .settings-form .field label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; }
+  .settings-form .field input {
+    width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;
+  }
+  .settings-form .field input:focus { outline: none; border-color: #1a1a2e; }
+  .settings-form button {
+    grid-column: 1 / -1; justify-self: start; padding: 9px 22px; background: #e8401c; color: #fff;
+    border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .settings-form button:hover { background: #c0320e; }
+
+  .store-title { font-size: 14px; font-weight: 700; margin-bottom: 12px; color: #1a1a2e; }
+
+  a.pdf-link { color: #1a1a2e; }
+
+  .toast {
+    background: #e6f9ee; border: 1px solid #86efac; color: #0f8a3f;
+    padding: 10px 16px; border-radius: 6px; font-size: 13px; margin-bottom: 20px;
+  }
+</style>
+{% block extra_head %}{% endblock %}
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">送り状自動作成 管理画面</div>
+    <nav>
+      <a href="/admin/processing" class="{{ 'active' if active == 'processing' else '' }}">
+        <span>処理状況一覧</span>
+        {% if counts.processing %}<span class="badge">{{ counts.processing }}</span>{% endif %}
+      </a>
+      <a href="/admin/history" class="{{ 'active' if active == 'history' else '' }}">
+        <span>発行履歴</span>
+      </a>
+      <a href="/admin/errors" class="{{ 'active' if active == 'errors' else '' }}">
+        <span>エラー・要対応</span>
+        {% if counts.errors %}<span class="badge">{{ counts.errors }}</span>{% endif %}
+      </a>
+      <a href="/admin/settings" class="{{ 'active' if active == 'settings' else '' }}">
+        <span>設定</span>
+      </a>
+      <a href="/">
+        <span>手動発行フォーム</span>
+      </a>
+    </nav>
+    <div class="foot">ヤマト運輸 B2クラウド連携</div>
+  </aside>
+  <main class="content">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
