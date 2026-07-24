@@ -1,0 +1,16 @@
+# Cloudflare Tunnel 設定（固定URL: label-print.muog.co.jp）
+#
+# 前提: 事前に以下をこのWindows PCで実行済みであること
+#   cloudflared tunnel login
+#   cloudflared tunnel create ph-label-print --credentials-file windows\tunnel-credentials.json
+#   cloudflared tunnel route dns ph-label-print label-print.muog.co.jp
+#
+# 参照先: windows\start_app.ps1 から `cloudflared tunnel run --config windows\cloudflared_config.yml ph-label-print` として起動される
+
+tunnel: ph-label-print
+credentials-file: windows\tunnel-credentials.json
+
+ingress:
+  - hostname: label-print.muog.co.jp
+    service: http://localhost:3131
+  - service: http_status:404

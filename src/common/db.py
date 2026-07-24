@@ -41,6 +41,22 @@ SHIPPING_METHOD_KEYWORDS = {
 }
 SHIPPING_METHOD_OTHER = "その他"
 
+# ヤマトの送り状種類(service_type)判定に使うタグのキーワード
+# 該当タグが無ければ既定の発払い("0")とする
+YAMATO_SERVICE_TYPE_KEYWORDS = {
+    "ネコポス":  "A",
+    "代金引換":  "2",   # コレクト（代金引換）
+}
+YAMATO_SERVICE_TYPE_DEFAULT = "0"   # 発払い
+
+
+def classify_yamato_service_type(tags: str) -> str:
+    tags = tags or ""
+    for keyword, service_type in YAMATO_SERVICE_TYPE_KEYWORDS.items():
+        if keyword in tags:
+            return service_type
+    return YAMATO_SERVICE_TYPE_DEFAULT
+
 APP_SETTINGS_DEFAULTS = {
     "issue_mode":     "manual",   # manual | auto
     "scan_folder":    "input",
@@ -100,7 +116,13 @@ def init_db():
                 detail_json          TEXT
             )
         """)
-        _ensure_columns(conn, "shipments", {"tag_status": "TEXT", "print_status": "TEXT"})
+        _ensure_columns(conn, "shipments", {
+            "tag_status": "TEXT", "print_status": "TEXT",
+            # Ship&co実績CSVとの照合結果（scripts/compare_shipco.py が記録する）
+            "compare_status": "TEXT",       # match / mismatch / no_data
+            "compare_match_rate": "REAL",   # 0.0〜1.0（その注文の項目一致率）
+            "compare_detail": "TEXT",       # JSON: フィールドごとの一致/不一致・値
+        })
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS store_settings (

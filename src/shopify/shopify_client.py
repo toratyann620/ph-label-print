@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 from dotenv import load_dotenv
 from models import ShipmentRequest
+import db
 
 load_dotenv(os.getenv("APP_ENV_FILE", ".env"), override=True)
 
@@ -171,8 +172,17 @@ class ShopifyClient:
         zip_code = shipping_address.get("zip") or ""
         recipient_zip = zip_code.replace("-", "").strip()
 
+        # 氏名: Shopifyの name は "名 姓"（first_name + last_name）の順で連結されており、
+        # 日本の配送慣習（姓 名）とは逆になっている。first_name/last_nameがあれば並べ替える。
+        first_name = shipping_address.get("first_name") or ""
+        last_name = shipping_address.get("last_name") or ""
+        if first_name or last_name:
+            recipient_name = f"{last_name} {first_name}".strip()
+        else:
+            recipient_name = shipping_address.get("name") or ""
+
         return {
-            "name":    shipping_address.get("name") or "",
+            "name":    recipient_name,
             "zip":     recipient_zip,
             "address": recipient_address,
             "address2": address2,
@@ -206,9 +216,19 @@ class ShopifyClient:
         sender_address2 = "3F"
         sender_phone = "070-9296-0635"
 
+        # 送り状種類（ネコポス/コレクト(代金引換)/発払い）は注文タグから判定
+        service_type = db.classify_yamato_service_type(order.get("tags", ""))
+        amount = "0"
+        tax_amount = ""
+        if service_type == "2":  # コレクト（代金引換）: 実際に代金引換で徴収する金額を設定する
+            amount = str(order.get("total_price") or "0").split(".")[0]
+            tax_amount = str(order.get("total_tax") or "").split(".")[0]
+
         return ShipmentRequest(
             customer_order_no=str(order.get("order_number") or order.get("id")),
-            service_type="0",  # 0: 元払い
+            service_type=service_type,
+            amount=amount,
+            tax_amount=tax_amount,
             ship_date="",  # 空白の場合、yamato_client側で本日日付を自動設定
             sender_name=sender_name,
             sender_zip=sender_zip,

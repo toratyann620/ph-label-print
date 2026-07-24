@@ -27,6 +27,10 @@ class ShipmentRequest(BaseModel):
     service_type: str = "0030"   # 0030=宅急便
     ship_date: str               # 例: "2026-03-27"
 
+    # コレクト（代金引換）の場合のみ使用
+    amount: str = "0"            # コレクト代金引換額
+    tax_amount: str = ""         # コレクト内消費税額等
+
 
 class ShipmentResponse(BaseModel):
     success: bool

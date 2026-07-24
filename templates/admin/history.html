@@ -18,6 +18,7 @@
           <th>発行番号</th>
           <th>PDF</th>
           <th>Shopifyタグ付与</th>
+          <th>Ship&co照合</th>
         </tr>
       </thead>
       <tbody>
@@ -41,6 +42,21 @@
             {% elif row.tag_status %}
             <span class="badge-status badge-error" title="{{ row.tag_status }}">失敗</span>
             {% else %}-{% endif %}
+          </td>
+          <td>
+            {% if row.compare_status == 'match' %}
+            <span class="badge-status badge-done">一致 100%</span>
+            {% elif row.compare_status == 'mismatch' %}
+            <span class="badge-status badge-processing">不一致 {{ (row.compare_match_rate * 100) | round | int }}%</span>
+            {% elif row.compare_status == 'issue_failed' %}
+            <span class="badge-status badge-error">発行失敗</span>
+            {% else %}-{% endif %}
+            {% if row.compare_detail %}
+            <details class="raw" style="margin-top:4px;">
+              <summary>詳細</summary>
+              <pre>{{ row.compare_detail }}</pre>
+            </details>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}

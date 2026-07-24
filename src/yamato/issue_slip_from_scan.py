@@ -155,8 +155,8 @@ async def issue_yamato_pdf(client: httpx.AsyncClient, store_name: str, order_no:
         "is_cool":                      "0",
         "shipment_date":                ship_date,
         "delivery_date":                delivery_date,
-        "amount":                       "0",
-        "tax_amount":                   "",
+        "amount":                       yamato_req.amount,
+        "tax_amount":                   yamato_req.tax_amount,
         "is_printing_lot":              "",
         "invoice_code":                 INVOICE_CODE,
         "invoice_code_ext":             INVOICE_EXT,
@@ -227,23 +227,32 @@ async def issue_yamato_pdf(client: httpx.AsyncClient, store_name: str, order_no:
         return False, {"step": "editA_check", "errors": errors}
 
     # Step 2: 送り状発行
+    # print_type: ネコポス(A)は専用レイアウト(A4 6面付け)固定、それ以外(発払い/コレクト等)はA4マルチ印刷
+    service_type_resolved = shipment.get("service_type", "0")
+    print_type = "A" if service_type_resolved == "A" else "m"
+
+    issue_shipment = {
+        "tracking_number": tracking_number,
+        "created_ms":      created_ms,
+        "service_type":    service_type_resolved,
+        "printer_type":    "1",
+        "shipment_flg":    "1",
+    }
+    if service_type_resolved == "A":
+        # ネコポスは必須: 送り状本体("0")か払込票("1")かを指定
+        issue_shipment["is_agent"] = "0"
+
     issue_payload = {
         "feed": {
             "updated": updated,
             "entry": [{
                 "id": str(entry.get("id", "1")),
-                "shipment": {
-                    "tracking_number": tracking_number,
-                    "created_ms":      created_ms,
-                    "service_type":    shipment.get("service_type", "0"),
-                    "printer_type":    "1",
-                    "shipment_flg":    "1",
-                },
+                "shipment": issue_shipment,
             }],
         }
     }
     r2 = await client.post(
-        f"{BASE_URL}/b2/p/new?issue_editA&display=0&print_type=m",
+        f"{BASE_URL}/b2/p/new?issue_editA&display=0&print_type={print_type}",
         headers={"X-Requested-With": "XMLHttpRequest", "Content-Type": "application/json"},
         json=issue_payload,
     )
@@ -313,11 +322,12 @@ async def issue_yamato_pdf(client: httpx.AsyncClient, store_name: str, order_no:
     }
 
 
-async def issue_for_order_name(order_name: str, source_pdf: str | None = None) -> dict:
+async def issue_for_order_name(order_name: str, source_pdf: str | None = None, skip_print: bool = False) -> dict:
     """
     注文番号（Shopify注文名, 例: "#P33986"）1件を、Shopify注文検索〜ヤマト送り状発行〜
     Shopifyタグ付与まで処理し、db.shipments に記録する。
     スキャン起点（自動発行）・チェックボックス起点（手動発行）の両方から共通で呼ばれる。
+    skip_print=True の場合、PDF発行までで印刷は行わない（照合スクリプト等での利用を想定）。
     """
     db.init_db()
 
@@ -386,13 +396,16 @@ async def issue_for_order_name(order_name: str, source_pdf: str | None = None) -
             db.update_shipment_record(record_id, tag_status=f"failed: {e}")
 
     # 送り状PDFの印刷（失敗しても送り状発行自体は成功扱いのまま、印刷状況だけ記録する）
-    store_settings = db.get_store_settings(store_name)
-    printer_name = (store_settings or {}).get("printer_name") or None
-    print_ok, print_message = print_pdf(result["pdf_path"], printer_name)
-    db.update_shipment_record(
-        record_id,
-        print_status=("ok: " + print_message) if print_ok else f"failed: {print_message}",
-    )
+    if skip_print:
+        db.update_shipment_record(record_id, print_status="skipped")
+    else:
+        store_settings = db.get_store_settings(store_name)
+        printer_name = (store_settings or {}).get("printer_name") or None
+        print_ok, print_message = print_pdf(result["pdf_path"], printer_name)
+        db.update_shipment_record(
+            record_id,
+            print_status=("ok: " + print_message) if print_ok else f"failed: {print_message}",
+        )
 
     return db.get_shipment(record_id)
 

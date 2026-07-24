@@ -44,18 +44,35 @@ Write-Output "サーバーを起動しました (PID=$($server.Id))"
 Start-Sleep -Seconds 3
 
 # ── Cloudflare Tunnel起動 ────────────────────────────────
+# 固定URL設定（windows\tunnel-credentials.json が用意済み）なら名前付きTunnelを、
+# 未設定なら従来の使い捨てTunnel（毎回URLが変わる）にフォールバックする。
 $cloudflaredPath = $env:CLOUDFLARED_PATH
 if (-not $cloudflaredPath) { $cloudflaredPath = "cloudflared.exe" }
 
+$credentialsFile = Join-Path $root "windows\tunnel-credentials.json"
+$configFile = Join-Path $root "windows\cloudflared_config.yml"
+
+if (Test-Path $credentialsFile) {
+    $tunnelArgs = @("tunnel", "--config", $configFile, "run", "ph-label-print")
+    Write-Output "固定URL（label-print.muog.co.jp）でCloudflare Tunnelを起動します。"
+} else {
+    $tunnelArgs = @("tunnel", "--url", "http://localhost:3131")
+    Write-Output "固定URL未設定のため、一時URLでCloudflare Tunnelを起動します（windows\tunnel-credentials.json が無いため）。"
+}
+
 try {
     $tunnel = Start-Process -FilePath $cloudflaredPath `
-        -ArgumentList "tunnel", "--url", "http://localhost:3131" `
+        -ArgumentList $tunnelArgs `
         -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $runDir "tunnel.log") `
         -RedirectStandardError  (Join-Path $runDir "tunnel.err.log")
     $tunnel.Id | Out-File (Join-Path $runDir "tunnel.pid")
     Write-Output "Cloudflare Tunnelを起動しました (PID=$($tunnel.Id))"
-    Write-Output "数秒後に windows\run\tunnel.err.log 内のURL（https://xxxx.trycloudflare.com）を確認してください。"
+    if (Test-Path $credentialsFile) {
+        Write-Output "URL: https://label-print.muog.co.jp"
+    } else {
+        Write-Output "数秒後に windows\run\tunnel.err.log 内のURL（https://xxxx.trycloudflare.com）を確認してください。"
+    }
 } catch {
     Write-Warning "Cloudflare Tunnelの起動に失敗しました: $_"
     Write-Warning "cloudflared.exe がインストールされているか確認してください。"

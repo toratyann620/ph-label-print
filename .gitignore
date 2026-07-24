@@ -15,3 +15,5 @@ sample/
 yamato_last_requests.json
 windows/run/
 tools/
+windows/tunnel-credentials.json
+ship-co/
