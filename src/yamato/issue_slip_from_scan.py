@@ -52,6 +52,33 @@ def _resolve_path(path: str) -> str:
     return path if os.path.isabs(path) else os.path.join(PROJECT_ROOT, path)
 
 
+def format_yamato_error(result: dict) -> str:
+    """
+    issue_yamato_pdf() の失敗結果を、担当者が読んで対処できる形式のメッセージに整形する。
+    ヤマトAPIの業務バリデーションエラー（editA_check）は error_description が日本語で
+    分かりやすいため、それをそのまま前面に出す。それ以外（HTTP/通信エラー等）は生の情報を残す。
+    """
+    step = result.get("step", "")
+    if step == "editA_check":
+        errors = result.get("errors") or []
+        if errors:
+            lines = [
+                f"・{e.get('error_property_name', '?')}: {e.get('error_description', e.get('error_code', '不明なエラー'))}"
+                for e in errors
+            ]
+            return "送り状データの入力内容にエラーがあります（Shopify注文の住所等を確認・修正のうえ再試行してください）:\n" + "\n".join(lines)
+        return "送り状データにエラーがありますが、詳細を取得できませんでした。"
+    if step == "editA":
+        return f"ヤマトAPIへの仮データ登録に失敗しました（HTTP {result.get('status')}）: {result.get('body', '')[:300]}"
+    if step in ("new", "polling"):
+        return f"ヤマトAPIでの送り状発行処理に失敗しました（HTTP {result.get('status')}）: {result.get('body', '')[:300]}"
+    if step == "polling_timeout":
+        return "ヤマトAPIの印刷データ作成が時間内に完了しませんでした。時間をおいて再試行してください。"
+    if step == "download":
+        return f"送り状PDFのダウンロードに失敗しました（HTTP {result.get('status')}）: {result.get('body', '')[:300]}"
+    return str(result)
+
+
 async def find_order(order_name: str):
     """
     設定済みの全ストアから該当する注文を検索する。
@@ -374,7 +401,7 @@ async def issue_for_order_name(order_name: str, source_pdf: str | None = None, s
         success, result = await issue_yamato_pdf(client, store_name, order_no, yamato_req)
 
     if not success:
-        db.update_shipment_record(record_id, status="error_yamato", error_message=str(result))
+        db.update_shipment_record(record_id, status="error_yamato", error_message=format_yamato_error(result))
         return db.get_shipment(record_id)
 
     db.update_shipment_record(

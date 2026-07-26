@@ -1,8 +1,21 @@
 {% extends "admin/base.html" %}
 {% block title %}エラー・要対応{% endblock %}
+{% block extra_head %}
+<style>
+  .error-message { font-size: 12.5px; white-space: pre-wrap; color: #c0321a; line-height: 1.6; max-width: 420px; }
+  .retry-btn {
+    padding: 6px 14px; background: #1a1a2e; color: #fff; border: none; border-radius: 6px;
+    font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  .retry-btn:hover { background: #2e2e48; }
+</style>
+{% endblock %}
 {% block content %}
   <h1>エラー・要対応</h1>
-  <p class="subtitle">QR読み取り失敗、Shopify注文が見つからない、ヤマトAPIエラーなど、人の対応が必要な案件です。</p>
+  <p class="subtitle">QR読み取り失敗、Shopify注文が見つからない、ヤマトAPIエラーなど、人の対応が必要な案件です。Shopify側の注文情報を修正後、「再試行」で再度発行できます。</p>
+
+  {% if retried == 'success' %}<div class="toast">再試行に成功しました。発行履歴をご確認ください。</div>{% endif %}
+  {% if retried == 'failed' %}<div class="toast" style="background:#fdeceb;border-color:#fca5a5;color:#c0321a;">再試行しましたが、まだエラーが解消していません。内容をご確認ください。</div>{% endif %}
 
   <div class="card">
     {% if rows %}
@@ -12,10 +25,10 @@
           <th>ID</th>
           <th>発生日時</th>
           <th>ステータス</th>
-          <th>スキャンPDF</th>
           <th>注文番号</th>
           <th>ストア</th>
           <th>エラー内容</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -24,14 +37,19 @@
           <td>{{ row.id }}</td>
           <td>{{ row.updated_at[:19] }}</td>
           <td><span class="badge-status badge-error">{{ status_labels.get(row.status, row.status) }}</span></td>
-          <td>{{ row.source_pdf or '-' }}</td>
           <td>{{ row.order_name or '-' }}</td>
           <td>{{ row.store or '-' }}</td>
           <td>
-            <details class="raw">
-              <summary>内容を見る</summary>
-              <pre>{{ row.error_message or '' }}</pre>
-            </details>
+            <div class="error-message">{{ row.error_message or '' }}</div>
+            {% if row.source_pdf %}<div style="font-size:11px;color:#999;margin-top:4px;">スキャンPDF: {{ row.source_pdf }}</div>{% endif %}
+          </td>
+          <td>
+            {% if row.order_name %}
+            <form method="post" action="/admin/errors/retry">
+              <input type="hidden" name="order_name" value="{{ row.order_name }}">
+              <button type="submit" class="retry-btn">再試行</button>
+            </form>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}

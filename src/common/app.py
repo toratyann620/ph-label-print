@@ -212,14 +212,24 @@ async def admin_history(request: Request):
 
 
 @app.get("/admin/errors", response_class=HTMLResponse)
-async def admin_errors(request: Request):
+async def admin_errors(request: Request, retried: str = ""):
     if (redirect := _require_admin(request)) is not None:
         return redirect
     rows = db.list_shipments(statuses=list(db.ERROR_STATUSES))
     return templates.TemplateResponse("admin/errors.html", {
         "request": request, "active": "errors", "counts": _nav_counts(),
-        "rows": rows, "status_labels": db.STATUS_LABELS,
+        "rows": rows, "status_labels": db.STATUS_LABELS, "retried": retried,
     })
+
+
+@app.post("/admin/errors/retry", include_in_schema=False)
+async def admin_errors_retry(request: Request, order_name: str = Form(...)):
+    """エラーになった注文をShopify側の修正後に再試行する（失敗レコードは二重発行防止の対象外のため、そのまま再実行できる）"""
+    if (redirect := _require_admin(request)) is not None:
+        return redirect
+    record = await issue_for_order_name(order_name)
+    result = "success" if record["status"] == "done" else "failed"
+    return RedirectResponse(url=f"/admin/errors?retried={result}", status_code=303)
 
 
 @app.get("/admin/settings", response_class=HTMLResponse)
