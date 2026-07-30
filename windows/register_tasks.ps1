@@ -1,8 +1,12 @@
 <#
-  タスクスケジューラに「毎日8:00起動 / 毎日20:00終了」を登録する。
-  PowerShellを「管理者として実行」した状態で、このスクリプトを1回だけ実行してください。
+  Registers Task Scheduler jobs: start daily at 8:00, stop daily at 20:00.
+  Run this script once, from a PowerShell window opened as Administrator:
 
     powershell -ExecutionPolicy Bypass -File windows\register_tasks.ps1
+
+  NOTE: This file must stay plain ASCII (no Japanese text). Windows PowerShell 5.1
+  does not reliably read UTF-8 .ps1 files without a BOM and will corrupt/garble
+  non-ASCII characters, causing parse errors.
 #>
 $ErrorActionPreference = "Stop"
 
@@ -16,15 +20,15 @@ $startTrigger = New-ScheduledTaskTrigger -Daily -At 8:00AM
 $settings     = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 Register-ScheduledTask -TaskName "PHLabelPrint-Start" -Action $startAction -Trigger $startTrigger `
     -Settings $settings -RunLevel Highest -Force | Out-Null
-Write-Output "登録: PHLabelPrint-Start（毎日 8:00 起動）"
+Write-Output "Registered: PHLabelPrint-Start (daily at 8:00)"
 
 $stopAction  = New-ScheduledTaskAction -Execute "powershell.exe" `
     -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$stopScript`""
 $stopTrigger = New-ScheduledTaskTrigger -Daily -At 8:00PM
 Register-ScheduledTask -TaskName "PHLabelPrint-Stop" -Action $stopAction -Trigger $stopTrigger `
     -Settings $settings -RunLevel Highest -Force | Out-Null
-Write-Output "登録: PHLabelPrint-Stop（毎日 20:00 終了）"
+Write-Output "Registered: PHLabelPrint-Stop (daily at 20:00)"
 
 Write-Output ""
-Write-Output "確認: タスクスケジューラを開いて「PHLabelPrint-Start」「PHLabelPrint-Stop」が登録されていることを確認してください。"
-Write-Output "今すぐ動作確認したい場合は、タスクスケジューラで右クリック→「実行」で手動起動できます。"
+Write-Output "Check: open Task Scheduler and confirm PHLabelPrint-Start / PHLabelPrint-Stop are listed."
+Write-Output "To test immediately, right-click either task in Task Scheduler and choose Run."
