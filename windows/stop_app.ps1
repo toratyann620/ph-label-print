@@ -14,7 +14,12 @@ foreach ($name in @("server", "tunnel")) {
     if (Test-Path $pidFile) {
         $procId = Get-Content $pidFile
         if (Get-Process -Id $procId -ErrorAction SilentlyContinue) {
-            Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+            # /T kills the whole process tree. The venv's python.exe on Windows is a
+            # launcher stub that spawns the real interpreter as a CHILD process rather
+            # than running in-place; Stop-Process on just the stub's PID leaves that
+            # child alive and still holding port 3131, causing the next start attempt
+            # to fail with "address already in use" even though stop looked successful.
+            & taskkill /F /T /PID $procId 2>$null | Out-Null
             Write-Output "Stopped $name (PID=$procId)"
         }
         Remove-Item $pidFile -ErrorAction SilentlyContinue
@@ -23,6 +28,14 @@ foreach ($name in @("server", "tunnel")) {
 
 # Also clean up any stray cloudflared process just in case
 Get-Process -Name "cloudflared" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+# Also clean up any orphaned python process still holding port 3131
+# (leftover from a start attempt before this taskkill /T fix was in place)
+$staleServer = Get-NetTCPConnection -LocalPort 3131 -State Listen -ErrorAction SilentlyContinue
+foreach ($conn in $staleServer) {
+    & taskkill /F /T /PID $conn.OwningProcess 2>$null | Out-Null
+    Write-Output "Stopped orphaned process still holding port 3131 (PID=$($conn.OwningProcess))"
+}
 
 # ── Backup the shipment/error history DB ────────────────────────
 # Keep a dated copy on every stop in case of disk failure or accidental data loss

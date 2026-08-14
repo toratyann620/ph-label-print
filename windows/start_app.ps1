@@ -34,13 +34,19 @@ if (Test-Path $serverPidFile) {
 # keep the port occupied. When that happens, this script used to launch a new
 # server that silently failed to bind while the stale process kept answering
 # requests with outdated code, with no visible error to the operator.)
-$portHolders = Get-NetTCPConnection -LocalPort 3131 -State Listen -ErrorAction SilentlyContinue
-foreach ($conn in $portHolders) {
-    $staleId = $conn.OwningProcess
-    Write-Warning "Port 3131 is already in use by PID=$staleId (stale process from a previous run). Stopping it."
-    Stop-Process -Id $staleId -Force -ErrorAction SilentlyContinue
+# Retries a few times: on Windows, the venv's python.exe is a launcher stub
+# that runs the real interpreter as a CHILD process, so a single kill pass can
+# still leave a grandchild holding the port; taskkill /T targets the whole tree.
+for ($attempt = 1; $attempt -le 5; $attempt++) {
+    $portHolders = Get-NetTCPConnection -LocalPort 3131 -State Listen -ErrorAction SilentlyContinue
+    if (-not $portHolders) { break }
+    foreach ($conn in $portHolders) {
+        $staleId = $conn.OwningProcess
+        Write-Warning "Port 3131 is already in use by PID=$staleId (stale process from a previous run). Stopping it (attempt $attempt)."
+        & taskkill /F /T /PID $staleId 2>$null | Out-Null
+    }
+    Start-Sleep -Seconds 2
 }
-if ($portHolders) { Start-Sleep -Seconds 1 }
 
 $env:APP_ENV_FILE = ".env"
 
