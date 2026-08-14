@@ -123,7 +123,8 @@
       </div>
       <div class="field">
         <label>プリンター名</label>
-        <input type="text" name="printer_name" value="{{ s.printer_name }}" placeholder="未実装：今後の自動印刷機能で使用">
+        <input type="text" name="printer_name" value="{{ s.printer_name }}" placeholder="未入力の場合は既定のプリンター（EPSON_PX_S155）を使用">
+        <div class="field-hint">Windowsに登録されているプリンター名と完全に一致させてください（括弧やスペースを含む名前は避けることを推奨します）。</div>
       </div>
       <button type="submit">{{ s.store }} の設定を保存</button>
     </form>

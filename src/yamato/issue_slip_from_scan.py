@@ -51,6 +51,10 @@ INVOICE_CODE    = os.getenv("YAMATO_INVOICE_CODE", "")
 INVOICE_EXT     = os.getenv("YAMATO_INVOICE_CODE_EXT", "")
 INVOICE_FREIGHT = os.getenv("YAMATO_INVOICE_FREIGHT_NO", "")
 
+# 店舗設定でプリンター名が未設定の場合に使う既定プリンター（Windowsのシステム既定
+# プリンターに依存させないため）。設定画面で店舗ごとに上書きされていればそちらを優先する。
+DEFAULT_PRINTER_NAME = "EPSON_PX_S155"
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
@@ -519,7 +523,7 @@ async def issue_for_order_name(order_name: str, source_pdf: str | None = None, s
         db.update_shipment_record(record_id, print_status="skipped")
     else:
         store_settings = db.get_store_settings(store_name)
-        printer_name = (store_settings or {}).get("printer_name") or None
+        printer_name = (store_settings or {}).get("printer_name") or DEFAULT_PRINTER_NAME
         print_ok, print_message = print_pdf(result["pdf_path"], printer_name)
         db.update_shipment_record(
             record_id,
@@ -546,7 +550,7 @@ async def reprint_for_order_name(order_name: str) -> dict:
         return {"found": False, "error": "送り状PDFファイルが見つかりません（担当者にご連絡ください）"}
 
     store_settings = db.get_store_settings(existing.get("store")) or {}
-    printer_name = store_settings.get("printer_name") or None
+    printer_name = store_settings.get("printer_name") or DEFAULT_PRINTER_NAME
     print_ok, print_message = print_pdf(pdf_path, printer_name)
     print_status = ("ok: " + print_message) if print_ok else f"failed: {print_message}"
     db.update_shipment_record(existing["id"], print_status=print_status)
