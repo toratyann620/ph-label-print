@@ -415,9 +415,13 @@ async def issue_for_order_name(order_name: str, source_pdf: str | None = None, s
     db.init_db()
 
     # 二重発行防止: 既に発行完了している注文番号は再度ヤマトAPIを呼ばない
-    existing = db.find_shipment_by_order_name(order_name)
-    if existing:
-        return existing
+    # （テスト期間中、設定でforce_reissueが有効な場合のみこのチェックをスキップし、
+    #  毎回本番APIへ新規の送り状発行リクエストを送る＝実際に新しい伝票番号が発行される）
+    force_reissue = db.get_app_settings().get("force_reissue") == "1"
+    if not force_reissue:
+        existing = db.find_shipment_by_order_name(order_name)
+        if existing:
+            return existing
 
     record_id = db.create_shipment_record(
         source_pdf=source_pdf,

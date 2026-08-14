@@ -76,7 +76,18 @@
         <input type="text" name="admin_pin" value="{{ app_settings.admin_pin }}">
         <div class="field-hint">この設定画面を含む管理画面全体（<a href="/admin/processing" target="_blank">/admin</a> 配下）にアクセスする際の暗証番号です。スキャン用PINとは別に管理できます。</div>
       </div>
-      <button type="submit" class="action-btn" style="padding:9px 22px;background:#e8401c;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">保存</button>
+      <div class="field" style="background:#fdeceb;border:1px solid #fca5a5;border-radius:6px;padding:12px 14px;margin-top:20px;">
+        <label style="display:flex;align-items:center;gap:8px;color:#c0321a;font-weight:700;">
+          <input type="checkbox" name="force_reissue" {% if app_settings.force_reissue == '1' %}checked{% endif %} style="width:auto;">
+          テスト用: 二重発行防止を無効化する
+        </label>
+        <div class="field-hint" style="color:#c0321a;">
+          ONの間は、既に発行済みの注文番号でも毎回ヤマト/佐川の<strong>本番API</strong>へ新規の送り状発行リクエストを送り、
+          そのたびに新しい伝票番号・実際の送料が発生する本物の出荷登録が作られます。テスト期間中の動作確認専用の設定です。
+          通常運用に戻す際は必ずOFFにしてください。
+        </div>
+      </div>
+      <button type="submit" class="action-btn" style="padding:9px 22px;background:#e8401c;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;margin-top:14px;">保存</button>
     </form>
   </div>
 

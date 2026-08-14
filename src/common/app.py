@@ -286,6 +286,7 @@ async def admin_settings_global_save(
     issue_tag: str = Form(""),
     scan_pin: str = Form(""),
     admin_pin: str = Form(""),
+    force_reissue: str = Form(""),
 ):
     if (redirect := _require_admin(request)) is not None:
         return redirect
@@ -299,6 +300,7 @@ async def admin_settings_global_save(
         issue_tag=issue_tag,
         scan_pin=scan_pin,
         admin_pin=admin_pin,
+        force_reissue=("1" if force_reissue == "on" else "0"),
     )
     return RedirectResponse(url="/admin/settings?saved=1", status_code=303)
 
