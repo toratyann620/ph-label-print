@@ -198,7 +198,10 @@ def _print_pdf_windows(pdf_path: str, printer_name: str | None) -> tuple[bool, s
     sumatra = os.getenv("SUMATRA_PDF_PATH") or os.path.join(PROJECT_ROOT, "tools", "SumatraPDF.exe")
     target_label = printer_name or "既定のプリンター"
     if os.path.exists(sumatra):
-        cmd = [sumatra, "-silent", "-exit-when-done"]
+        # -print-settings fit: PDFのページサイズと実際にセットされている用紙サイズが
+        # 一致しない場合に、原寸のまま印字して用紙の外に大部分がはみ出す（結果的に
+        # 白紙に見える）事態を防ぐため、用紙に収まるよう自動的に拡大縮小させる。
+        cmd = [sumatra, "-silent", "-exit-when-done", "-print-settings", "fit"]
         cmd += ["-print-to", printer_name] if printer_name else ["-print-to-default"]
         cmd.append(pdf_path)
         try:
