@@ -30,9 +30,16 @@ from datetime import datetime
 import httpx
 from dotenv import load_dotenv
 
+# src/sagawa を直接 import できるようにする（PYTHONPATH未設定でも動くように、app.pyと同じ方式）
+_SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_SAGAWA_PATH = os.path.join(_SRC_DIR, "sagawa")
+if _SAGAWA_PATH not in sys.path:
+    sys.path.insert(0, _SAGAWA_PATH)
+
 from config import STORE_CANDIDATES
 from shopify_client import ShopifyClient
 from qr_reader import extract_order_name_from_pdf
+from sagawa_client import issue_sagawa_pdf, format_sagawa_error
 import db
 
 load_dotenv(os.getenv("APP_ENV_FILE", ".env"), override=True)
@@ -118,6 +125,24 @@ def _apply_store_settings(yamato_req, store_name: str):
     if settings.get("sender_phone"):
         yamato_req.sender_phone = settings["sender_phone"]
     return yamato_req
+
+
+def _apply_sagawa_store_settings(sagawa_req: dict, store_name: str) -> dict:
+    """店舗設定（管理画面で編集された送り元情報）があれば上書きする（ヤマトの_apply_store_settingsと同様）"""
+    settings = db.get_store_settings(store_name)
+    if not settings:
+        return sagawa_req
+    if settings.get("sender_name"):
+        sagawa_req["sender_name"] = settings["sender_name"]
+    if settings.get("sender_zip"):
+        sagawa_req["sender_zip"] = settings["sender_zip"]
+    if settings.get("sender_address"):
+        sagawa_req["sender_address1"] = settings["sender_address"][:25]
+    if settings.get("sender_address2"):
+        sagawa_req["sender_address2"] = settings["sender_address2"][:25]
+    if settings.get("sender_phone"):
+        sagawa_req["sender_phone"] = settings["sender_phone"]
+    return sagawa_req
 
 
 def print_pdf(pdf_path: str, printer_name: str | None = None) -> tuple[bool, str]:
@@ -413,32 +438,64 @@ async def issue_for_order_name(order_name: str, source_pdf: str | None = None, s
             )
         return db.get_shipment(record_id)
 
-    yamato_req = _apply_store_settings(shopify.map_order_to_yamato_request(order), store_name)
     order_no = str(order.get("order_number"))
+    # Shopify注文タグから配送業者を自動判定する（処理状況一覧の表示にも使う db.classify_shipping_method と同じ判定）
+    carrier = "sagawa" if db.classify_shipping_method(order.get("tags", "")) == "佐川" else "yamato"
 
-    db.update_shipment_record(
-        record_id,
-        store=store_name,
-        shopify_order_number=order_no,
-        recipient_name=yamato_req.recipient_name,
-        recipient_address=yamato_req.recipient_address,
-        recipient_phone=yamato_req.recipient_phone,
-    )
+    if carrier == "sagawa":
+        sagawa_req = _apply_sagawa_store_settings(shopify.map_order_to_sagawa_request(order), store_name)
+        db.update_shipment_record(
+            record_id,
+            store=store_name,
+            shopify_order_number=order_no,
+            carrier=carrier,
+            recipient_name=sagawa_req["recipient_name"],
+            recipient_address=f"{sagawa_req['recipient_address1']}{sagawa_req['recipient_address2']}{sagawa_req['recipient_address3']}",
+            recipient_phone=sagawa_req["recipient_phone"],
+        )
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        success, result = await issue_yamato_pdf(client, store_name, order_no, yamato_req)
+        output_dir = _resolve_path(db.get_app_settings()["output_folder"])
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            success, result = await issue_sagawa_pdf(client, store_name, order_no, sagawa_req, output_dir)
 
-    if not success:
-        db.update_shipment_record(record_id, status="error_yamato", error_message=format_yamato_error(result))
-        return db.get_shipment(record_id)
+        if not success:
+            db.update_shipment_record(record_id, status="error_sagawa", error_message=format_sagawa_error(result))
+            return db.get_shipment(record_id)
 
-    db.update_shipment_record(
-        record_id,
-        status="done",
-        yamato_issue_no=result["issue_no"],
-        yamato_tracking_no=result["tracking_number"],
-        pdf_path=result["pdf_path"],
-    )
+        db.update_shipment_record(
+            record_id,
+            status="done",
+            yamato_issue_no="",
+            yamato_tracking_no=result["tracking_number"],
+            pdf_path=result["pdf_path"],
+        )
+    else:
+        yamato_req = _apply_store_settings(shopify.map_order_to_yamato_request(order), store_name)
+        db.update_shipment_record(
+            record_id,
+            store=store_name,
+            shopify_order_number=order_no,
+            carrier=carrier,
+            recipient_name=yamato_req.recipient_name,
+            recipient_address=yamato_req.recipient_address,
+            recipient_phone=yamato_req.recipient_phone,
+        )
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            success, result = await issue_yamato_pdf(client, store_name, order_no, yamato_req)
+
+        if not success:
+            db.update_shipment_record(record_id, status="error_yamato", error_message=format_yamato_error(result))
+            return db.get_shipment(record_id)
+
+        db.update_shipment_record(
+            record_id,
+            status="done",
+            yamato_issue_no=result["issue_no"],
+            yamato_tracking_no=result["tracking_number"],
+            pdf_path=result["pdf_path"],
+        )
+
     db.mark_order_issued(order_name, record_id)
 
     # Shopify注文へのタグ付与（失敗しても送り状発行自体は成功扱いのまま、タグ状況だけ記録する）

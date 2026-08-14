@@ -187,6 +187,10 @@ class ShopifyClient:
             "address": recipient_address,
             "address2": address2,
             "phone":   clean_phone(shipping_address.get("phone") or ""),
+            # 佐川API（お届け先住所を3行に分けて送る必要がある）向けの内訳
+            "province": province,
+            "city":     city,
+            "address1": address1,
         }
 
     def map_order_to_yamato_request(self, order: dict) -> ShipmentRequest:
@@ -244,3 +248,51 @@ class ShopifyClient:
             total_count=1,
             weight_kg=1.0
         )
+
+    def map_order_to_sagawa_request(self, order: dict) -> dict:
+        """
+        Shopifyの注文情報を佐川急便 即時発行API（sokuji）のリクエスト用dictにマッピングする。
+        送り元情報は既定でPHOTOPRIの情報とし、実際の値は issue_slip_from_scan.py 側で
+        store_settings により店舗ごとに上書きされる（ヤマトの _apply_store_settings と同様）。
+        """
+        recipient = self.extract_recipient(order)
+
+        line_items = order.get("line_items") or []
+        if line_items:
+            item_name = line_items[0].get("title", line_items[0].get("name", "商品"))
+            # 佐川の記事欄(kiji1)は32文字まで印字可能
+            if len(line_items) > 1:
+                item_name = f"{item_name[:28]}外"
+            else:
+                item_name = item_name[:32]
+        else:
+            item_name = "印刷商品"
+
+        # コレクト（代金引換）は注文タグから判定（ヤマトと同じタグ規則を流用）
+        is_cod = db.classify_yamato_service_type(order.get("tags", "")) == "2"
+        cod_amount = ""
+        cod_tax = ""
+        if is_cod:
+            cod_amount = str(order.get("total_price") or "0").split(".")[0]
+            cod_tax = str(order.get("total_tax") or "").split(".")[0]
+
+        return {
+            # 管理番号（半角16文字まで）: Shopify注文名の "#" を除いたもの
+            "user_manage_number": (order.get("name") or "").lstrip("#")[:16],
+            "recipient_name":     recipient["name"],
+            "recipient_zip":      recipient["zip"],
+            # 届先住所は3行（各25文字まで）に分けて送る
+            "recipient_address1": f"{recipient['province']}{recipient['city']}"[:25],
+            "recipient_address2": recipient["address1"][:25],
+            "recipient_address3": recipient["address2"][:25],
+            "recipient_phone":    recipient["phone"],
+            "sender_name":     "株式会社PHOTOPRI",
+            "sender_zip":      "173-0004",
+            "sender_address1": "東京都板橋区板橋１丁目９−１０",
+            "sender_address2": "3F",
+            "sender_phone":    "070-9296-0635",
+            "item_name": item_name,
+            "is_cod": is_cod,
+            "cod_amount": cod_amount,
+            "cod_tax": cod_tax,
+        }

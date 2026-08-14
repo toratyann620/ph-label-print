@@ -2,7 +2,7 @@
 {% block title %}発行履歴{% endblock %}
 {% block content %}
   <h1>発行履歴</h1>
-  <p class="subtitle">ヤマトB2クラウドAPIで送り状発行が完了した案件の一覧です（Ship&coの「発行完了」に相当）。</p>
+  <p class="subtitle">ヤマトB2クラウドAPI・佐川急便スマートAPIで送り状発行が完了した案件の一覧です（Ship&coの「発行完了」に相当）。</p>
 
   <div class="card">
     {% if rows %}
@@ -13,6 +13,7 @@
           <th>発行日時</th>
           <th>注文番号</th>
           <th>ストア</th>
+          <th>配送業者</th>
           <th>お届け先</th>
           <th>伝票番号</th>
           <th>発行番号</th>
@@ -28,6 +29,13 @@
           <td>{{ row.updated_at[:19] }}</td>
           <td>{{ row.order_name or '-' }}</td>
           <td>{{ row.store or '-' }}</td>
+          <td>
+            {% if row.carrier == 'sagawa' %}
+            <span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600;background:#eef2ff;color:#3b3fc7;">佐川</span>
+            {% else %}
+            <span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600;background:#fff1e6;color:#b3590a;">ヤマト</span>
+            {% endif %}
+          </td>
           <td>{{ row.recipient_name or '-' }}</td>
           <td>{{ row.yamato_tracking_no or '-' }}</td>
           <td>{{ row.yamato_issue_no or '-' }}</td>

@@ -29,9 +29,10 @@ STATUS_LABELS = {
     "error_order_not_found": "Shopify注文が見つかりません",
     "error_shopify":         "Shopify APIエラー",
     "error_yamato":          "ヤマトAPIエラー",
+    "error_sagawa":          "佐川APIエラー",
 }
 
-ERROR_STATUSES = ("error_qr", "error_order_not_found", "error_shopify", "error_yamato")
+ERROR_STATUSES = ("error_qr", "error_order_not_found", "error_shopify", "error_yamato", "error_sagawa")
 IN_PROGRESS_STATUSES = ("processing",)
 
 # 発送方法の判定に使うタグのキーワード（Shopify注文タグに含まれるかで判定）
@@ -122,6 +123,9 @@ def init_db():
             "compare_status": "TEXT",       # match / mismatch / no_data
             "compare_match_rate": "REAL",   # 0.0〜1.0（その注文の項目一致率）
             "compare_detail": "TEXT",       # JSON: フィールドごとの一致/不一致・値
+            # どちらの配送業者で発行したか（"yamato" / "sagawa"）。
+            # yamato_issue_no / yamato_tracking_no は佐川発行時も流用する（佐川は発行受付IDを使わない即時発行のため issue_no は空欄、tracking_noに問合番号を格納）
+            "carrier": "TEXT",
         })
 
         conn.execute("""

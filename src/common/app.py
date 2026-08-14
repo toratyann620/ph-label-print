@@ -8,7 +8,7 @@ import sys
 # src/common, src/shopify, src/yamato を直接 import できるようにする
 # （PYTHONPATH未設定で `uvicorn src.common.app:app` を実行した場合でも動くように）
 _SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _sub in ("common", "shopify", "yamato"):
+for _sub in ("common", "shopify", "yamato", "sagawa"):
     _path = os.path.join(_SRC_DIR, _sub)
     if _path not in sys.path:
         sys.path.insert(0, _path)
@@ -42,7 +42,7 @@ async def on_startup():
 
 def _nav_counts() -> dict:
     orders = db.list_orders_cache()
-    not_issued = sum(1 for o in orders if o["shipping_method"] == "ヤマト" and o["yamato_status"] != "issued")
+    not_issued = sum(1 for o in orders if o["shipping_method"] in ("ヤマト", "佐川") and o["yamato_status"] != "issued")
     return {
         "processing": not_issued,
         "errors": db.count_shipments(db.ERROR_STATUSES),
