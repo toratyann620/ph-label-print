@@ -244,7 +244,8 @@
         <div class="order-name">${escapeHtml(orderName)}</div>
         <span class="status-pill status-ok">送り状を発行しました</span>
         <div class="field"><div class="label">伝票番号</div><div class="value">${escapeHtml(data.tracking_number || '-')}</div></div>
-        <span class="status-pill ${printed ? 'status-ok' : 'status-warn'}">${printed ? '印刷を送信しました' : '印刷エラー: ' + escapeHtml(data.print_status || '')}</span>
+        <span class="status-pill ${printed ? 'status-ok' : 'status-warn'}">${printed ? '印刷を送信しました' : '印刷エラー'}</span>
+        <div class="field"><div class="label">印刷ステータス詳細</div><div class="value" style="font-size:12px;font-weight:400;">${escapeHtml(data.print_status || '-')}</div></div>
         <button class="btn" id="btn-next">次のスキャンへ</button>
       `;
     } else {

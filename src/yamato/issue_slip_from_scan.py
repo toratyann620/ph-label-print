@@ -25,7 +25,7 @@ import platform
 import shutil
 import subprocess
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import httpx
 from dotenv import load_dotenv
@@ -141,24 +141,50 @@ def _print_pdf_unix(pdf_path: str, printer_name: str | None) -> tuple[bool, str]
         return False, str(e)
 
 
+def _list_windows_printers() -> list[str]:
+    """このPCにインストールされているプリンター名の一覧を取得する"""
+    try:
+        import win32print
+        # PRINTER_ENUM_LOCAL(2) | PRINTER_ENUM_CONNECTIONS(4)
+        return [p[2] for p in win32print.EnumPrinters(2 | 4)]
+    except Exception:
+        return []
+
+
 def _print_pdf_windows(pdf_path: str, printer_name: str | None) -> tuple[bool, str]:
     """
     Windows印刷。
     1. SumatraPDF（環境変数 SUMATRA_PDF_PATH、または tools/SumatraPDF.exe）があればそれを使う（推奨・最も確実）
        https://www.sumatrapdfreader.org/ （無料・ポータブル版で可）
     2. 無ければ pywin32 の ShellExecute(printto) にフォールバック（既定のPDFビューアの対応状況に依存するため非推奨）
+
+    印刷前に指定プリンター名がこのPCに実在するかを確認する（設定画面の入力ミス・
+    Windows側の登録名との食い違いを、印刷が「成功」した見た目のまま見逃さないため）。
     """
+    if printer_name:
+        installed = _list_windows_printers()
+        if installed and printer_name not in installed:
+            return False, (
+                f"プリンター『{printer_name}』が見つかりません。"
+                f"このPCに登録されているプリンター: {', '.join(installed)}"
+                "（設定画面のプリンター名を確認してください）"
+            )
+
     sumatra = os.getenv("SUMATRA_PDF_PATH") or os.path.join(PROJECT_ROOT, "tools", "SumatraPDF.exe")
+    target_label = printer_name or "既定のプリンター"
     if os.path.exists(sumatra):
         cmd = [sumatra, "-silent", "-exit-when-done"]
         cmd += ["-print-to", printer_name] if printer_name else ["-print-to-default"]
         cmd.append(pdf_path)
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            message = (result.stdout or result.stderr or "SumatraPDFで印刷指示を送信しました").strip()
+            detail = (result.stdout or result.stderr or "").strip()
+            message = f"SumatraPDFで『{target_label}』へ印刷指示を送信しました"
+            if detail:
+                message += f"（{detail}）"
             return result.returncode == 0, message
         except Exception as e:
-            return False, f"SumatraPDF実行エラー: {e}"
+            return False, f"SumatraPDF実行エラー（送信先: {target_label}）: {e}"
 
     try:
         import win32api
@@ -166,15 +192,17 @@ def _print_pdf_windows(pdf_path: str, printer_name: str | None) -> tuple[bool, s
             win32api.ShellExecute(0, "printto", pdf_path, f'"{printer_name}"', ".", 0)
         else:
             win32api.ShellExecute(0, "print", pdf_path, None, ".", 0)
-        return True, "既定のPDFビューア経由で印刷指示を送信しました（SumatraPDF未導入のためフォールバック実行）"
+        return True, f"既定のPDFビューア経由で『{target_label}』へ印刷指示を送信しました（SumatraPDF未導入のためフォールバック実行）"
     except Exception as e:
-        return False, f"Windows印刷に失敗しました。SumatraPDFの導入を推奨します: {e}"
+        return False, f"Windows印刷に失敗しました（送信先: {target_label}）。SumatraPDFの導入を推奨します: {e}"
 
 
 async def issue_yamato_pdf(client: httpx.AsyncClient, store_name: str, order_no: str, yamato_req) -> tuple[bool, dict]:
     """ヤマトB2クラウドAPIで送り状を発行し、PDFを出力フォルダへ保存する"""
     ship_date = datetime.now().strftime("%Y%m%d")
-    delivery_date = (datetime.now() + timedelta(days=2)).strftime("%Y%m%d")
+    # お届け予定日は空欄にし、ヤマト側で最短日を自動計算させる
+    # （仕様書: delivery_date は YYYYMMDD または未指定=最短）
+    delivery_date = ""
 
     shipment_data = {
         "shipment_number":              f"SHOP-{order_no}",
