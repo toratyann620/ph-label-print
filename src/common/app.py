@@ -344,7 +344,10 @@ async def api_scan_lookup(request: Request, body: ScanOrderRequest):
         return {"found": False, "error": f"注文 '{order_name}' が見つかりませんでした"}
 
     recipient = shopify.extract_recipient(order)
-    existing = db.find_shipment_by_order_name(order_name)
+    # force_reissue が有効な間は「既に発行済み」判定自体をスキップし、常に通常の
+    # 「送り状発行」ボタン（＝毎回本番APIへ新規発行）を表示させる（テスト用）
+    force_reissue = db.get_app_settings().get("force_reissue") == "1"
+    existing = None if force_reissue else db.find_shipment_by_order_name(order_name)
 
     return {
         "found": True,
