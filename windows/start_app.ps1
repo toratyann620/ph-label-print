@@ -50,8 +50,23 @@ Start-Sleep -Seconds 3
 # ── Start Cloudflare Tunnel ─────────────────────────────────────
 # If a fixed-URL setup exists (windows\tunnel-credentials.json), use the named
 # tunnel; otherwise fall back to the quick tunnel (URL changes every restart).
+#
+# cloudflared.exe resolution order (avoids relying on the system PATH, which has
+# repeatedly failed to be visible to Task Scheduler / freshly opened PowerShell
+# sessions after a winget install):
+#   1. CLOUDFLARED_PATH environment variable, if set
+#   2. Bundled copy at tools\cloudflared.exe (same approach as SumatraPDF; see README)
+#   3. "cloudflared.exe" via system PATH (last resort, kept for compatibility)
 $cloudflaredPath = $env:CLOUDFLARED_PATH
-if (-not $cloudflaredPath) { $cloudflaredPath = "cloudflared.exe" }
+if (-not $cloudflaredPath) {
+    $bundled = Join-Path $root "tools\cloudflared.exe"
+    if (Test-Path $bundled) {
+        $cloudflaredPath = $bundled
+    } else {
+        $cloudflaredPath = "cloudflared.exe"
+    }
+}
+Write-Output "Using cloudflared: $cloudflaredPath"
 
 $credentialsFile = Join-Path $root "windows\tunnel-credentials.json"
 $configFile = Join-Path $root "windows\cloudflared_config.yml"

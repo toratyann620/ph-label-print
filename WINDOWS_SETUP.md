@@ -12,10 +12,16 @@
    インストール時に「Add python.exe to PATH」に必ずチェックを入れてください。
 2. **Git**: https://git-scm.com/download/win
 3. **cloudflared**（スマホからアクセスするためのトンネル）:
-   ```powershell
-   winget install --id Cloudflare.cloudflared
-   ```
-   `winget`が使えない場合は https://github.com/cloudflare/cloudflared/releases から `cloudflared-windows-amd64.exe` をダウンロードし、`cloudflared.exe` にリネームしてPATHの通ったフォルダに配置してください。
+   `winget`でインストールすると、PowerShellのPATHに反映されるタイミングが不安定で
+   （ウィンドウを開き直しても反映されない・タスクスケジューラからは見えない等）
+   「指定されたファイルが見つかりません」エラーが繰り返し発生したため、
+   **PATHに頼らずプロジェクト内に直接配置する方式**を採用しています（SumatraPDFと同じ考え方）。
+
+   https://github.com/cloudflare/cloudflared/releases から最新版の `cloudflared-windows-amd64.exe` をダウンロードし、
+   `cloudflared.exe` にリネームしてこのプロジェクトの `tools\cloudflared.exe` として配置してください
+   （`tools`フォルダが無ければ作成。手順4のSumatraPDFと同じフォルダです）。
+   `windows\start_app.ps1` は起動のたびに `tools\cloudflared.exe` を最優先で探すため、
+   一度配置すればPATHの状態やPowerShellウィンドウの開き直しに影響されず、常に同じ場所から確実に起動します。
 4. **SumatraPDF**（推奨・印刷を安定させるため）: https://www.sumatrapdfreader.org/download-free-pdf-viewer
    ポータブル版をダウンロードし、`SumatraPDF.exe` をこのプロジェクトの `tools\SumatraPDF.exe` として配置してください（`tools`フォルダが無ければ作成）。
    - 導入しない場合、既定のPDFビューア経由での印刷にフォールバックしますが、動作が不安定な場合があります。
