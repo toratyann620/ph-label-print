@@ -43,9 +43,21 @@ for ($attempt = 1; $attempt -le 5; $attempt++) {
     foreach ($conn in $portHolders) {
         $staleId = $conn.OwningProcess
         Write-Warning "Port 3131 is already in use by PID=$staleId (stale process from a previous run). Stopping it (attempt $attempt)."
-        & taskkill /F /T /PID $staleId 2>$null | Out-Null
+        # A failed taskkill (e.g. insufficient privileges) must not abort this script
+        # (with $ErrorActionPreference=Stop, an unhandled native-command failure would).
+        try { & taskkill /F /T /PID $staleId 2>$null | Out-Null } catch { }
     }
     Start-Sleep -Seconds 2
+}
+
+$stillBlocked = Get-NetTCPConnection -LocalPort 3131 -State Listen -ErrorAction SilentlyContinue
+if ($stillBlocked) {
+    $blockedPid = $stillBlocked[0].OwningProcess
+    $msg = "Could not free port 3131 (still held by PID=$blockedPid). This is usually a permissions issue " +
+           "(that process was started elevated / by Task Scheduler and this session is not elevated). " +
+           "Re-run this script from an elevated (Run as Administrator) PowerShell window."
+    Write-Error $msg
+    exit 1
 }
 
 $env:APP_ENV_FILE = ".env"

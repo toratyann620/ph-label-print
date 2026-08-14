@@ -14,19 +14,25 @@ $root = Split-Path -Parent $PSScriptRoot
 $startScript = Join-Path $root "windows\start_app.ps1"
 $stopScript  = Join-Path $root "windows\stop_app.ps1"
 
+# RunLevel is intentionally left at the default (Limited / standard user).
+# Binding uvicorn to port 3131 does not require Administrator rights, and
+# running these tasks elevated caused a real problem: the resulting server
+# process could only be terminated from an elevated PowerShell window, so a
+# normal (non-elevated) manual stop/start silently failed to kill it, leaving
+# an orphan that held port 3131 forever and made every later restart fail.
 $startAction  = New-ScheduledTaskAction -Execute "powershell.exe" `
     -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$startScript`""
 $startTrigger = New-ScheduledTaskTrigger -Daily -At 8:00AM
 $settings     = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 Register-ScheduledTask -TaskName "PHLabelPrint-Start" -Action $startAction -Trigger $startTrigger `
-    -Settings $settings -RunLevel Highest -Force | Out-Null
+    -Settings $settings -Force | Out-Null
 Write-Output "Registered: PHLabelPrint-Start (daily at 8:00)"
 
 $stopAction  = New-ScheduledTaskAction -Execute "powershell.exe" `
     -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$stopScript`""
 $stopTrigger = New-ScheduledTaskTrigger -Daily -At 8:00PM
 Register-ScheduledTask -TaskName "PHLabelPrint-Stop" -Action $stopAction -Trigger $stopTrigger `
-    -Settings $settings -RunLevel Highest -Force | Out-Null
+    -Settings $settings -Force | Out-Null
 Write-Output "Registered: PHLabelPrint-Stop (daily at 20:00)"
 
 Write-Output ""
