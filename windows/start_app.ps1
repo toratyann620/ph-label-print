@@ -102,6 +102,7 @@ if (Test-Path $credentialsFile) {
     Write-Output "No fixed-URL setup found (windows\tunnel-credentials.json missing). Using a temporary quick-tunnel URL."
 }
 
+$tunnelStarted = $false
 try {
     $tunnel = Start-Process -FilePath $cloudflaredPath `
         -ArgumentList $tunnelArgs `
@@ -110,12 +111,51 @@ try {
         -RedirectStandardError  (Join-Path $runDir "tunnel.err.log")
     $tunnel.Id | Out-File (Join-Path $runDir "tunnel.pid")
     Write-Output "Cloudflare Tunnel started (PID=$($tunnel.Id))"
-    if (Test-Path $credentialsFile) {
-        Write-Output "URL: https://label-print.muog.co.jp"
-    } else {
-        Write-Output "In a few seconds, check windows\run\tunnel.err.log for the URL (https://xxxx.trycloudflare.com)."
-    }
+    $tunnelStarted = $true
 } catch {
     Write-Warning "Failed to start Cloudflare Tunnel: $_"
     Write-Warning "Please confirm cloudflared.exe is installed."
 }
+
+# -- Resolve the public URL and print a ready-to-use summary -----
+# (so the operator does not need to separately grep tunnel.err.log and query
+# the database for PINs every time the app is restarted)
+$tunnelUrl = $null
+if ($tunnelStarted) {
+    if (Test-Path $credentialsFile) {
+        $tunnelUrl = "https://label-print.muog.co.jp"
+    } else {
+        for ($i = 0; $i -lt 15; $i++) {
+            Start-Sleep -Seconds 1
+            $logLines = Get-Content (Join-Path $runDir "tunnel.err.log") -ErrorAction SilentlyContinue
+            $found = $logLines | Select-String -Pattern "https://[A-Za-z0-9\-]+\.trycloudflare\.com" | Select-Object -First 1
+            if ($found) {
+                $tunnelUrl = $found.Matches[0].Value
+                break
+            }
+        }
+    }
+}
+
+$pins = $null
+try {
+    $pinsJson = & $venvPython -c "import sys; sys.path.insert(0, 'src/common'); import db, json; s = db.get_app_settings(); print(json.dumps({'admin_pin': s['admin_pin'], 'scan_pin': s['scan_pin']}))"
+    $pins = $pinsJson | ConvertFrom-Json
+} catch {
+    Write-Warning "Failed to read PINs from the database: $_"
+}
+
+Write-Output ""
+Write-Output "=================================================="
+if ($tunnelUrl) {
+    Write-Output "  Admin screen : $tunnelUrl/admin/processing"
+    Write-Output "  Scan screen  : $tunnelUrl/scan"
+} else {
+    Write-Output "  Tunnel URL not detected within 15s."
+    Write-Output "  Check manually: windows\run\tunnel.err.log"
+}
+if ($pins) {
+    Write-Output "  Admin PIN    : $($pins.admin_pin)"
+    Write-Output "  Scan PIN     : $($pins.scan_pin)"
+}
+Write-Output "=================================================="
