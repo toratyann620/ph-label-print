@@ -174,10 +174,13 @@ def _print_pdf_unix(pdf_path: str, printer_name: str | None) -> tuple[bool, str]
 def _flatten_pdf_for_print(pdf_path: str, dpi: int = 300) -> str:
     """
     印刷直前にPDFの各ページを画像として描画し直し、新しいシンプルなPDFとして保存する。
-    ヤマトB2クラウドが生成するPDFの一部で、画面表示・ダウンロードは正常なのに
-    SumatraPDF経由での印刷結果だけ白紙になる事例が確認されたため、PDF内部の
-    構造に起因する印刷経路の互換性問題を避けるために全ページをラスタライズしてから
-    印刷する（画像化に失敗した場合は元のPDFパスをそのまま返し、通常通り印刷を試みる）。
+
+    根本原因（調査で特定済み）: ヤマトB2クラウドのPDFには、複製・不正利用防止のため
+    ページ全面を覆う白塗りのWidget注釈（フィールド名 "$Mask..."）が埋め込まれており、
+    これは文書オープン時のJavaScript（/AA /O）によって非表示化される設計になっている。
+    SumatraPDF・PyMuPDF はいずれもPDF内蔵JavaScriptを実行しないため、このマスクが
+    残ったまま描画・印刷され、結果的に白紙になる（Chrome/Adobe ReaderなどJS実行対応の
+    ビューアでは正常に見える）。印刷前にこのマスク注釈を明示的に除去してから描画する。
     """
     try:
         import fitz  # PyMuPDF
@@ -186,11 +189,14 @@ def _flatten_pdf_for_print(pdf_path: str, dpi: int = 300) -> str:
         zoom = dpi / 72
         matrix = fitz.Matrix(zoom, zoom)
         for page in src:
+            for widget in list(page.widgets() or []):
+                if widget.field_name and widget.field_name.startswith("$Mask"):
+                    page.delete_widget(widget)
             pix = page.get_pixmap(matrix=matrix)
             new_page = out.new_page(width=page.rect.width, height=page.rect.height)
             new_page.insert_image(page.rect, pixmap=pix)
         flattened_path = os.path.join(tempfile.gettempdir(), f"print_{os.path.basename(pdf_path)}")
-        out.save(flattened_path)
+        out.save(flattened_path, deflate=True)
         out.close()
         src.close()
         return flattened_path
@@ -264,9 +270,12 @@ def _print_pdf_windows(pdf_path: str, printer_name: str | None) -> tuple[bool, s
 async def issue_yamato_pdf(client: httpx.AsyncClient, store_name: str, order_no: str, yamato_req) -> tuple[bool, dict]:
     """ヤマトB2クラウドAPIで送り状を発行し、PDFを出力フォルダへ保存する"""
     ship_date = datetime.now().strftime("%Y%m%d")
-    # お届け予定日は空欄にし、ヤマト側で最短日を自動計算させる
-    # （仕様書: delivery_date は YYYYMMDD または未指定=最短）
-    delivery_date = ""
+    # delivery_dateを空文字にすると「日付欄を印字しない」指定になってしまう
+    # （公式仕様書 No.6: ※入力なしの場合、印字されません）。最短日を指定・印字させる
+    # には、YYYYMMDD形式の代わりに全角文字列 "最短日" を明示的に送る必要がある。
+    # これにより日付印字フラグ(is_printing_date)の既定値も自動的に「1:印字する」
+    # になり、出荷予定日・お届け予定日の両方が正しく印字される。
+    delivery_date = "最短日"
 
     shipment_data = {
         "shipment_number":              f"SHOP-{order_no}",
