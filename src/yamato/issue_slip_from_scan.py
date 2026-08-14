@@ -25,6 +25,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 
 import httpx
@@ -170,6 +171,33 @@ def _print_pdf_unix(pdf_path: str, printer_name: str | None) -> tuple[bool, str]
         return False, str(e)
 
 
+def _flatten_pdf_for_print(pdf_path: str, dpi: int = 300) -> str:
+    """
+    印刷直前にPDFの各ページを画像として描画し直し、新しいシンプルなPDFとして保存する。
+    ヤマトB2クラウドが生成するPDFの一部で、画面表示・ダウンロードは正常なのに
+    SumatraPDF経由での印刷結果だけ白紙になる事例が確認されたため、PDF内部の
+    構造に起因する印刷経路の互換性問題を避けるために全ページをラスタライズしてから
+    印刷する（画像化に失敗した場合は元のPDFパスをそのまま返し、通常通り印刷を試みる）。
+    """
+    try:
+        import fitz  # PyMuPDF
+        src = fitz.open(pdf_path)
+        out = fitz.open()
+        zoom = dpi / 72
+        matrix = fitz.Matrix(zoom, zoom)
+        for page in src:
+            pix = page.get_pixmap(matrix=matrix)
+            new_page = out.new_page(width=page.rect.width, height=page.rect.height)
+            new_page.insert_image(page.rect, pixmap=pix)
+        flattened_path = os.path.join(tempfile.gettempdir(), f"print_{os.path.basename(pdf_path)}")
+        out.save(flattened_path)
+        out.close()
+        src.close()
+        return flattened_path
+    except Exception:
+        return pdf_path
+
+
 def _list_windows_printers() -> list[str]:
     """このPCにインストールされているプリンター名の一覧を取得する"""
     try:
@@ -202,12 +230,16 @@ def _print_pdf_windows(pdf_path: str, printer_name: str | None) -> tuple[bool, s
     sumatra = os.getenv("SUMATRA_PDF_PATH") or os.path.join(PROJECT_ROOT, "tools", "SumatraPDF.exe")
     target_label = printer_name or "既定のプリンター"
     if os.path.exists(sumatra):
+        # PDFの構造によっては、画面表示・ダウンロードは正常なのにSumatraPDF経由の
+        # 印刷結果だけ白紙になる事例が確認されたため、ページを画像化した簡易PDFを
+        # 印刷対象にする（互換性問題の回避）。
+        print_source = _flatten_pdf_for_print(pdf_path)
         # -print-settings fit: PDFのページサイズと実際にセットされている用紙サイズが
         # 一致しない場合に、原寸のまま印字して用紙の外に大部分がはみ出す（結果的に
         # 白紙に見える）事態を防ぐため、用紙に収まるよう自動的に拡大縮小させる。
         cmd = [sumatra, "-silent", "-exit-when-done", "-print-settings", "fit"]
         cmd += ["-print-to", printer_name] if printer_name else ["-print-to-default"]
-        cmd.append(pdf_path)
+        cmd.append(print_source)
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             detail = (result.stdout or result.stderr or "").strip()
