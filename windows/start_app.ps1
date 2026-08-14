@@ -28,6 +28,20 @@ if (Test-Path $serverPidFile) {
     }
 }
 
+# Free port 3131 if a stale/orphaned process is still holding it.
+# (stop_app.ps1 kills the PID it recorded, but if that PID was already wrong
+# or a previous start crashed without updating server.pid, an old process can
+# keep the port occupied. When that happens, this script used to launch a new
+# server that silently failed to bind while the stale process kept answering
+# requests with outdated code, with no visible error to the operator.)
+$portHolders = Get-NetTCPConnection -LocalPort 3131 -State Listen -ErrorAction SilentlyContinue
+foreach ($conn in $portHolders) {
+    $staleId = $conn.OwningProcess
+    Write-Warning "Port 3131 is already in use by PID=$staleId (stale process from a previous run). Stopping it."
+    Stop-Process -Id $staleId -Force -ErrorAction SilentlyContinue
+}
+if ($portHolders) { Start-Sleep -Seconds 1 }
+
 $env:APP_ENV_FILE = ".env"
 
 $venvPython = Join-Path $root ".venv\Scripts\python.exe"
@@ -46,6 +60,15 @@ $server.Id | Out-File (Join-Path $runDir "server.pid")
 Write-Output "Server started (PID=$($server.Id))"
 
 Start-Sleep -Seconds 3
+
+# Verify the server process is still alive (it exits immediately on a bind
+# failure such as "port already in use"). Fail loudly here instead of leaving
+# a silently-broken server running with no visible error.
+if (-not (Get-Process -Id $server.Id -ErrorAction SilentlyContinue)) {
+    Write-Error "Server process (PID=$($server.Id)) exited immediately after starting. Check windows\run\server.err.log for details."
+    Remove-Item (Join-Path $runDir "server.pid") -ErrorAction SilentlyContinue
+    exit 1
+}
 
 # ── Start Cloudflare Tunnel ─────────────────────────────────────
 # If a fixed-URL setup exists (windows\tunnel-credentials.json), use the named
