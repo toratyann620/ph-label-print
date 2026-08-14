@@ -185,7 +185,7 @@
       const data = await res.json();
       renderLookupResult(data);
     } catch (e) {
-      renderError('通信エラー: ' + e.message);
+      renderError('通信エラー: ' + (e.name || '') + ': ' + e.message + ' ／読み取った文字列: ' + JSON.stringify(orderName));
     }
   }
 
@@ -234,7 +234,7 @@
       const data = await res.json();
       renderIssueResult(orderName, data);
     } catch (e) {
-      renderError('通信エラー: ' + e.message);
+      renderError('通信エラー: ' + (e.name || '') + ': ' + e.message + ' ／注文番号: ' + JSON.stringify(orderName));
     }
   }
 
@@ -276,7 +276,7 @@
       const data = await res.json();
       renderReprintResult(orderName, data);
     } catch (e) {
-      renderError('通信エラー: ' + e.message);
+      renderError('通信エラー: ' + (e.name || '') + ': ' + e.message + ' ／注文番号: ' + JSON.stringify(orderName));
     }
   }
 
