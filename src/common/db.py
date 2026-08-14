@@ -36,9 +36,12 @@ ERROR_STATUSES = ("error_qr", "error_order_not_found", "error_shopify", "error_y
 IN_PROGRESS_STATUSES = ("processing",)
 
 # 発送方法の判定に使うタグのキーワード（Shopify注文タグに含まれるかで判定）
+# 「ネコポス」は先に判定する（ネコポス注文には「ヤマト」タグが付いていないことがあり、
+#  この順序が逆だと該当タグを持つ注文が SHIPPING_METHOD_OTHER に落ちてしまうため）
 SHIPPING_METHOD_KEYWORDS = {
-    "ヤマト": "ヤマト",
-    "佐川":   "佐川",
+    "ネコポス": "ネコポス",
+    "ヤマト":   "ヤマト",
+    "佐川":     "佐川",
 }
 SHIPPING_METHOD_OTHER = "その他"
 

@@ -202,8 +202,10 @@
         <span class="status-pill status-warn">既に発行済みです</span>
         <div class="field"><div class="label">お客様名</div><div class="value">${escapeHtml(data.customer_name || '-')}</div></div>
         <div class="field"><div class="label">伝票番号</div><div class="value">${escapeHtml(data.tracking_number || '-')}</div></div>
+        <button class="btn" id="btn-reprint">再印刷する</button>
         <button class="btn secondary" id="btn-rescan">もう一度スキャン</button>
       `;
+      document.getElementById('btn-reprint').addEventListener('click', () => reprintShipment(data.order_name));
     } else {
       resultCard.innerHTML = `
         <div class="kicker">読み取り結果</div>
@@ -257,6 +259,42 @@
         <button class="btn" id="btn-next">次のスキャンへ</button>
       `;
     }
+    document.getElementById('btn-next').addEventListener('click', startCamera);
+    showOnly(viewResult);
+  }
+
+  async function reprintShipment(orderName) {
+    showOnly(viewLoading);
+    document.getElementById('loading-text').textContent = '再印刷中...';
+    try {
+      const res = await fetch('/api/scan/reprint', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_name: orderName }),
+      });
+      if (res.status === 401) { location.href = '/scan/login'; return; }
+      const data = await res.json();
+      renderReprintResult(orderName, data);
+    } catch (e) {
+      renderError('通信エラー: ' + e.message);
+    }
+  }
+
+  function renderReprintResult(orderName, data) {
+    if (!data.found) {
+      renderError(data.error || '再印刷に失敗しました');
+      return;
+    }
+    const printed = (data.print_status || '').startsWith('ok');
+    resultCard.innerHTML = `
+      <div class="kicker">再印刷</div>
+      <div class="order-name">${escapeHtml(orderName)}</div>
+      <span class="status-pill status-warn">既に発行済みです</span>
+      <div class="field"><div class="label">伝票番号</div><div class="value">${escapeHtml(data.tracking_number || '-')}</div></div>
+      <span class="status-pill ${printed ? 'status-ok' : 'status-err'}">${printed ? '再印刷を送信しました' : '印刷エラー'}</span>
+      <div class="field"><div class="label">印刷ステータス詳細</div><div class="value" style="font-size:12px;font-weight:400;">${escapeHtml(data.print_status || '-')}</div></div>
+      <button class="btn" id="btn-next">次のスキャンへ</button>
+    `;
     document.getElementById('btn-next').addEventListener('click', startCamera);
     showOnly(viewResult);
   }

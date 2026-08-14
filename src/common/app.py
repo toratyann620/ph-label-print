@@ -26,7 +26,7 @@ import db
 from config import STORE_CANDIDATES
 import order_sync
 import scan_auth
-from issue_slip_from_scan import issue_for_order_name, scan_folder_and_issue, find_order
+from issue_slip_from_scan import issue_for_order_name, scan_folder_and_issue, find_order, reprint_for_order_name
 
 PROJECT_ROOT = os.path.dirname(_SRC_DIR)
 
@@ -42,7 +42,7 @@ async def on_startup():
 
 def _nav_counts() -> dict:
     orders = db.list_orders_cache()
-    not_issued = sum(1 for o in orders if o["shipping_method"] in ("ヤマト", "佐川") and o["yamato_status"] != "issued")
+    not_issued = sum(1 for o in orders if o["shipping_method"] in ("ヤマト", "佐川", "ネコポス") and o["yamato_status"] != "issued")
     return {
         "processing": not_issued,
         "errors": db.count_shipments(db.ERROR_STATUSES),
@@ -368,6 +368,15 @@ async def api_scan_issue(request: Request, body: ScanOrderRequest):
         "print_status": record.get("print_status"),
         "error_message": record.get("error_message"),
     }
+
+
+@app.post("/api/scan/reprint")
+async def api_scan_reprint(request: Request, body: ScanOrderRequest):
+    """既に発行済みの送り状PDFを、送り状発行APIを再度呼ばずに再印刷する"""
+    if not scan_auth.is_authorized(request):
+        raise HTTPException(status_code=401, detail="認証が必要です")
+
+    return await reprint_for_order_name(body.order_name.strip())
 
 
 if __name__ == "__main__":

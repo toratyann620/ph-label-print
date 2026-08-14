@@ -522,6 +522,36 @@ async def issue_for_order_name(order_name: str, source_pdf: str | None = None, s
     return db.get_shipment(record_id)
 
 
+async def reprint_for_order_name(order_name: str) -> dict:
+    """
+    既に発行済みの送り状PDFを、ヤマト/佐川APIを再度呼ばずに印刷だけやり直す。
+    プリンターの紙詰まり・電源オフ等で「発行はできたが印刷できなかった」場合の
+    再印刷用（二重発行防止の対象である find_shipment_by_order_name をあえて使い、
+    新規の送り状発行は一切行わない）。
+    """
+    db.init_db()
+    existing = db.find_shipment_by_order_name(order_name)
+    if not existing:
+        return {"found": False, "error": f"注文 '{order_name}' の発行済み送り状が見つかりませんでした"}
+
+    pdf_path = existing.get("pdf_path")
+    if not pdf_path or not os.path.exists(pdf_path):
+        return {"found": False, "error": "送り状PDFファイルが見つかりません（担当者にご連絡ください）"}
+
+    store_settings = db.get_store_settings(existing.get("store")) or {}
+    printer_name = store_settings.get("printer_name") or None
+    print_ok, print_message = print_pdf(pdf_path, printer_name)
+    print_status = ("ok: " + print_message) if print_ok else f"failed: {print_message}"
+    db.update_shipment_record(existing["id"], print_status=print_status)
+
+    return {
+        "found": True,
+        "order_name": order_name,
+        "tracking_number": existing.get("yamato_tracking_no"),
+        "print_status": print_status,
+    }
+
+
 async def process_scanned_pdf(pdf_path: str) -> dict:
     """スキャンPDF1件をQR読取〜発行まで処理する（QR読取失敗時はerror_qrとして記録）"""
     db.init_db()
