@@ -62,6 +62,13 @@ if ($stillBlocked) {
 
 $env:APP_ENV_FILE = ".env"
 
+# Force UTF-8 for Python's stdout/stderr regardless of the Windows console's
+# legacy codepage (cp932 on Japanese Windows). Without this, print() calls
+# containing certain symbols (e.g. warning/check marks) raise UnicodeEncodeError
+# and crash the request instead of returning the intended error response.
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+
 $venvPython = Join-Path $root ".venv\Scripts\python.exe"
 if (-not (Test-Path $venvPython)) {
     Write-Error "venv not found: $venvPython . Please run the README setup steps first."
