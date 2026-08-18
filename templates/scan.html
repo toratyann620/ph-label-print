@@ -71,6 +71,27 @@
   .status-err { background: #fdeceb; color: #c0321a; }
   .card .btn { align-self: stretch; }
 
+  .card .phone-link { font-size: 15px; font-weight: 700; color: #0f6fc0; text-decoration: none; }
+  .warn-banner {
+    background: #fff6df; color: #8a5a06; border: 1px solid #f0d78a; border-radius: 10px;
+    padding: 10px 12px; font-size: 12.5px; line-height: 1.6;
+  }
+  .adjust-list { font-size: 12px; color: #666; line-height: 1.7; padding-left: 18px; margin: 0; }
+  .card .form-field { display: flex; flex-direction: column; gap: 4px; }
+  .card .form-field label { font-size: 11px; color: #999; }
+  .card .form-field input {
+    font-size: 15px; padding: 9px 10px; border: 1px solid #ddd; border-radius: 8px; color: #1a1a2e;
+  }
+  .card .form-field input:focus { outline: none; border-color: #e8401c; }
+  .fill-hint {
+    background: #f5f6f8; border-radius: 8px; padding: 8px 10px; font-size: 12px; color: #555;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .fill-hint button {
+    background: #1a1a2e; color: #fff; border: none; border-radius: 6px; padding: 5px 10px;
+    font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+
   .spinner {
     width: 34px; height: 34px; border: 3px solid rgba(255,255,255,.25); border-top-color: #e8401c;
     border-radius: 50%; animation: spin .8s linear infinite;
@@ -189,6 +210,37 @@
     }
   }
 
+  function phoneLinkHtml(phone) {
+    if (!phone) return '-';
+    return `<a class="phone-link" href="tel:${escapeHtml(phone)}">📞 ${escapeHtml(phone)}</a>`;
+  }
+
+  // 住所編集フォーム（郵便番号食い違い時・文字数オーバー時の修正、両方で共用）
+  function addressFormFieldsHtml(initial) {
+    const lines = (initial.lines || []).concat(['', '', '']).slice(0, 3);
+    return `
+      <div class="form-field"><label>お客様名</label><input type="text" id="f-name" value="${escapeHtml(initial.name || '')}"></div>
+      <div class="form-field"><label>郵便番号</label><input type="text" id="f-zip" value="${escapeHtml(initial.zip || '')}"></div>
+      <div class="form-field"><label>電話番号</label><input type="text" id="f-phone" value="${escapeHtml(initial.phone || '')}"></div>
+      <div class="form-field"><label>住所1行目</label><input type="text" id="f-line1" value="${escapeHtml(lines[0] || '')}"></div>
+      <div class="form-field"><label>住所2行目</label><input type="text" id="f-line2" value="${escapeHtml(lines[1] || '')}"></div>
+      <div class="form-field"><label>住所3行目（建物名等）</label><input type="text" id="f-line3" value="${escapeHtml(lines[2] || '')}"></div>
+    `;
+  }
+
+  function collectAddressFormValues() {
+    return {
+      recipient_name: document.getElementById('f-name').value.trim(),
+      recipient_zip: document.getElementById('f-zip').value.trim(),
+      recipient_phone: document.getElementById('f-phone').value.trim(),
+      address_lines: [
+        document.getElementById('f-line1').value.trim(),
+        document.getElementById('f-line2').value.trim(),
+        document.getElementById('f-line3').value.trim(),
+      ],
+    };
+  }
+
   function renderLookupResult(data) {
     if (!data.found) {
       renderError(data.error || '注文が見つかりませんでした');
@@ -201,34 +253,67 @@
         <div class="order-name">${escapeHtml(data.order_name)}</div>
         <span class="status-pill status-warn">既に発行済みです</span>
         <div class="field"><div class="label">お客様名</div><div class="value">${escapeHtml(data.customer_name || '-')}</div></div>
+        <div class="field"><div class="label">電話番号</div><div class="value">${phoneLinkHtml(data.customer_phone)}</div></div>
         <div class="field"><div class="label">伝票番号</div><div class="value">${escapeHtml(data.tracking_number || '-')}</div></div>
         <button class="btn" id="btn-reprint">再印刷する</button>
         <button class="btn secondary" id="btn-rescan">もう一度スキャン</button>
       `;
       document.getElementById('btn-reprint').addEventListener('click', () => reprintShipment(data.order_name));
-    } else {
+      document.getElementById('btn-rescan').addEventListener('click', startCamera);
+      showOnly(viewResult);
+      return;
+    }
+
+    if (data.zip_mismatch) {
+      const zipAddr = data.zip_suggested_address ? `${data.zip_suggested_address.province}${data.zip_suggested_address.city}` : '';
       resultCard.innerHTML = `
         <div class="kicker">読み取り結果</div>
         <div class="order-name">${escapeHtml(data.order_name)}</div>
-        <div class="field"><div class="label">お客様名</div><div class="value">${escapeHtml(data.customer_name || '-')}</div></div>
-        <div class="field"><div class="label">ストア</div><div class="value">${escapeHtml(data.store || '-')}</div></div>
+        <div class="warn-banner">郵便番号と住所が一致しない可能性があります。内容をご確認のうえ、必要であれば修正してください。お客様に電話で確認いただいても構いません。</div>
+        <div class="field"><div class="label">電話番号</div><div class="value">${phoneLinkHtml(data.customer_phone)}</div></div>
+        <div class="fill-hint">
+          <span>郵便番号からの推定: ${escapeHtml(zipAddr || '取得できませんでした')}</span>
+          <button type="button" id="btn-fill-zip">この住所を使う</button>
+        </div>
+        ${addressFormFieldsHtml({
+          name: data.customer_name, zip: data.customer_zip, phone: data.customer_phone,
+          lines: [data.customer_address || '', '', ''],
+        })}
         <button class="btn" id="btn-issue">送り状発行</button>
         <button class="btn secondary" id="btn-rescan">もう一度スキャン</button>
       `;
-      document.getElementById('btn-issue').addEventListener('click', () => issueShipment(data.order_name));
+      document.getElementById('btn-fill-zip').addEventListener('click', () => {
+        if (!data.zip_suggested_address) return;
+        document.getElementById('f-line1').value = zipAddr;
+      });
+      document.getElementById('btn-issue').addEventListener('click', () => issueShipment(data.order_name, collectAddressFormValues()));
+      document.getElementById('btn-rescan').addEventListener('click', startCamera);
+      showOnly(viewResult);
+      return;
     }
+
+    resultCard.innerHTML = `
+      <div class="kicker">読み取り結果</div>
+      <div class="order-name">${escapeHtml(data.order_name)}</div>
+      <div class="field"><div class="label">お客様名</div><div class="value">${escapeHtml(data.customer_name || '-')}</div></div>
+      <div class="field"><div class="label">電話番号</div><div class="value">${phoneLinkHtml(data.customer_phone)}</div></div>
+      <div class="field"><div class="label">ストア</div><div class="value">${escapeHtml(data.store || '-')}</div></div>
+      <button class="btn" id="btn-issue">送り状発行</button>
+      <button class="btn secondary" id="btn-rescan">もう一度スキャン</button>
+    `;
+    document.getElementById('btn-issue').addEventListener('click', () => issueShipment(data.order_name));
     document.getElementById('btn-rescan').addEventListener('click', startCamera);
     showOnly(viewResult);
   }
 
-  async function issueShipment(orderName) {
+  async function issueShipment(orderName, override) {
     showOnly(viewLoading);
     document.getElementById('loading-text').textContent = '送り状を発行中...（数秒かかります）';
     try {
       const res = await fetch('/api/scan/issue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order_name: orderName }),
+        body: JSON.stringify(override ? { order_name: orderName, override } : { order_name: orderName }),
       });
       if (res.status === 401) { location.href = '/scan/login'; return; }
       const data = await res.json();
@@ -239,6 +324,30 @@
   }
 
   function renderIssueResult(orderName, data) {
+    if (data.status === 'needs_address_correction') {
+      const c = data.correction || {};
+      const adjustmentsHtml = (c.adjustments || []).length
+        ? `<ul class="adjust-list">${(c.adjustments || []).map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul>`
+        : '<div class="field-hint" style="font-size:12px;color:#999;">自動調整はできませんでした。手動で修正してください。</div>';
+      resultCard.innerHTML = `
+        <div class="kicker">住所の確認が必要です</div>
+        <div class="order-name">${escapeHtml(orderName)}</div>
+        <div class="warn-banner">${escapeHtml(data.error_message || '住所の文字数制限を超えています')}</div>
+        <div class="field"><div class="label">自動調整の内容</div></div>
+        ${adjustmentsHtml}
+        ${addressFormFieldsHtml({
+          name: c.recipient_name, zip: c.recipient_zip, phone: c.recipient_phone,
+          lines: c.suggested_lines || [],
+        })}
+        <button class="btn" id="btn-issue-fixed">この内容で発行</button>
+        <button class="btn secondary" id="btn-next">次のスキャンへ</button>
+      `;
+      document.getElementById('btn-issue-fixed').addEventListener('click', () => issueShipment(orderName, collectAddressFormValues()));
+      document.getElementById('btn-next').addEventListener('click', startCamera);
+      showOnly(viewResult);
+      return;
+    }
+
     if (data.status === 'done') {
       const printed = (data.print_status || '').startsWith('ok');
       resultCard.innerHTML = `

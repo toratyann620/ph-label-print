@@ -49,6 +49,16 @@ class ShopifyOrder(BaseModel):
     note: Optional[str] = None
 
 
+# スマホ画面での住所修正内容（文字数オーバー時の自動調整結果の手動編集、
+# または郵便番号照合での不一致時にどちらの住所を使うかの選択・編集の両方で使う）
+class RecipientOverride(BaseModel):
+    recipient_name: str
+    recipient_zip: str
+    recipient_phone: str
+    address_lines: list[str]   # 1〜3行。キャリアに応じて発行処理側でマッピングする
+
+
 # スマホQRスキャン画面からのリクエスト
 class ScanOrderRequest(BaseModel):
     order_name: str
+    override: Optional[RecipientOverride] = None

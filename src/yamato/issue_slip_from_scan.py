@@ -20,6 +20,7 @@ CLI実行例:
 """
 import asyncio
 import glob
+import json
 import os
 import platform
 import shutil
@@ -41,6 +42,7 @@ from config import STORE_CANDIDATES
 from shopify_client import ShopifyClient
 from qr_reader import extract_order_name_from_pdf
 from sagawa_client import issue_sagawa_pdf, format_sagawa_error
+from address_format import fit_text_to_budget, fit_lines_to_budget, display_width
 import db
 
 load_dotenv(os.getenv("APP_ENV_FILE", ".env"), override=True)
@@ -55,6 +57,15 @@ INVOICE_FREIGHT = os.getenv("YAMATO_INVOICE_FREIGHT_NO", "")
 # 店舗設定でプリンター名が未設定の場合に使う既定プリンター（Windowsのシステム既定
 # プリンターに依存させないため）。設定画面で店舗ごとに上書きされていればそちらを優先する。
 DEFAULT_PRINTER_NAME = "EPSON_PX_S155"
+
+# 宛先住所の文字数上限（発行前にローカルで判定し、超えていればAPIを呼ばず修正を促す）。
+# ヤマトは全角換算（全角=2、半角=1）の文字幅制限、consignee_addressは本プロジェクトで
+# 確認済みの実測値（全角32文字相当）、consignee_address4（建物名）は実測値が未確認のため
+# 一般的な目安（全角16文字相当）を保守的に採用する。佐川は仕様書で確認済みの文字数制限。
+YAMATO_ADDRESS_MAX_UNITS = 64    # 全角32文字相当（consignee_address）
+YAMATO_ADDRESS2_MAX_UNITS = 32   # 全角16文字相当（consignee_address4、建物名）
+SAGAWA_LINE_MAX_CHARS = 25       # otodokeAdd1/2/3 各行
+SAGAWA_LINE_COUNT = 3
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -147,6 +158,54 @@ def _apply_sagawa_store_settings(sagawa_req: dict, store_name: str) -> dict:
         sagawa_req["sender_address2"] = settings["sender_address2"][:25]
     if settings.get("sender_phone"):
         sagawa_req["sender_phone"] = settings["sender_phone"]
+    return sagawa_req
+
+
+def _check_yamato_address_fit(yamato_req) -> dict | None:
+    """ヤマトの宛先住所が文字数制限に収まるかローカルで確認する。収まっていればNoneを返す"""
+    addr_result = fit_text_to_budget(yamato_req.recipient_address, YAMATO_ADDRESS_MAX_UNITS, width_fn=display_width)
+    if yamato_req.recipient_address2:
+        addr2_result = fit_text_to_budget(yamato_req.recipient_address2, YAMATO_ADDRESS2_MAX_UNITS, width_fn=display_width)
+    else:
+        addr2_result = {"text": "", "fits": True, "adjustments": []}
+
+    if addr_result["fits"] and addr2_result["fits"]:
+        return None
+    return {
+        "lines": [addr_result["text"], addr2_result["text"], ""],
+        "fits": addr_result["fits"] and addr2_result["fits"],
+        "adjustments": addr_result["adjustments"] + addr2_result["adjustments"],
+    }
+
+
+def _check_sagawa_address_fit(sagawa_req: dict) -> dict | None:
+    """佐川の宛先住所が文字数制限に収まるかローカルで確認する。収まっていればNoneを返す"""
+    parts = [sagawa_req["recipient_address1"], sagawa_req["recipient_address2"], sagawa_req["recipient_address3"]]
+    if all(len(p) <= SAGAWA_LINE_MAX_CHARS for p in parts):
+        return None
+    return fit_lines_to_budget(parts, SAGAWA_LINE_MAX_CHARS, SAGAWA_LINE_COUNT, width_fn=len)
+
+
+def _apply_recipient_override_yamato(yamato_req, override: dict):
+    """スマホ画面で確認・修正された宛先情報で上書きする"""
+    lines = list(override.get("address_lines") or [])
+    yamato_req.recipient_name = override["recipient_name"]
+    yamato_req.recipient_zip = override["recipient_zip"]
+    yamato_req.recipient_phone = override["recipient_phone"]
+    yamato_req.recipient_address = lines[0] if len(lines) > 0 else ""
+    yamato_req.recipient_address2 = lines[1] if len(lines) > 1 else ""
+    return yamato_req
+
+
+def _apply_recipient_override_sagawa(sagawa_req: dict, override: dict) -> dict:
+    """スマホ画面で確認・修正された宛先情報で上書きする"""
+    lines = (list(override.get("address_lines") or []) + ["", "", ""])[:3]
+    sagawa_req["recipient_name"] = override["recipient_name"]
+    sagawa_req["recipient_zip"] = override["recipient_zip"]
+    sagawa_req["recipient_phone"] = override["recipient_phone"]
+    sagawa_req["recipient_address1"] = lines[0]
+    sagawa_req["recipient_address2"] = lines[1]
+    sagawa_req["recipient_address3"] = lines[2]
     return sagawa_req
 
 
@@ -450,12 +509,19 @@ async def issue_yamato_pdf(client: httpx.AsyncClient, store_name: str, order_no:
     }
 
 
-async def issue_for_order_name(order_name: str, source_pdf: str | None = None, skip_print: bool = False) -> dict:
+async def issue_for_order_name(
+    order_name: str,
+    source_pdf: str | None = None,
+    skip_print: bool = False,
+    recipient_override: dict | None = None,
+) -> dict:
     """
     注文番号（Shopify注文名, 例: "#P33986"）1件を、Shopify注文検索〜ヤマト送り状発行〜
     Shopifyタグ付与まで処理し、db.shipments に記録する。
     スキャン起点（自動発行）・チェックボックス起点（手動発行）の両方から共通で呼ばれる。
     skip_print=True の場合、PDF発行までで印刷は行わない（照合スクリプト等での利用を想定）。
+    recipient_override が指定された場合、Shopify由来の宛先氏名・郵便番号・住所・電話番号を
+    この内容（スマホ画面で確認・修正済み）で上書きし、文字数チェックは行わずそのまま発行する。
     """
     db.init_db()
 
@@ -496,6 +562,33 @@ async def issue_for_order_name(order_name: str, source_pdf: str | None = None, s
 
     if carrier == "sagawa":
         sagawa_req = _apply_sagawa_store_settings(shopify.map_order_to_sagawa_request(order), store_name)
+
+        if recipient_override:
+            sagawa_req = _apply_recipient_override_sagawa(sagawa_req, recipient_override)
+        else:
+            correction = _check_sagawa_address_fit(sagawa_req)
+            if correction:
+                db.update_shipment_record(
+                    record_id,
+                    store=store_name,
+                    shopify_order_number=order_no,
+                    carrier=carrier,
+                    status="needs_address_correction",
+                    recipient_name=sagawa_req["recipient_name"],
+                    recipient_address=f"{sagawa_req['recipient_address1']}{sagawa_req['recipient_address2']}{sagawa_req['recipient_address3']}",
+                    recipient_phone=sagawa_req["recipient_phone"],
+                    error_message="住所の文字数が佐川急便の上限（1行25文字×3行）を超えています。内容を確認・修正してください。",
+                    detail_json=json.dumps({
+                        "carrier": carrier,
+                        "recipient_name": sagawa_req["recipient_name"],
+                        "recipient_zip": sagawa_req["recipient_zip"],
+                        "recipient_phone": sagawa_req["recipient_phone"],
+                        "suggested_lines": correction["lines"],
+                        "adjustments": correction["adjustments"],
+                    }, ensure_ascii=False),
+                )
+                return db.get_shipment(record_id)
+
         db.update_shipment_record(
             record_id,
             store=store_name,
@@ -523,6 +616,33 @@ async def issue_for_order_name(order_name: str, source_pdf: str | None = None, s
         )
     else:
         yamato_req = _apply_store_settings(shopify.map_order_to_yamato_request(order), store_name)
+
+        if recipient_override:
+            yamato_req = _apply_recipient_override_yamato(yamato_req, recipient_override)
+        else:
+            correction = _check_yamato_address_fit(yamato_req)
+            if correction:
+                db.update_shipment_record(
+                    record_id,
+                    store=store_name,
+                    shopify_order_number=order_no,
+                    carrier=carrier,
+                    status="needs_address_correction",
+                    recipient_name=yamato_req.recipient_name,
+                    recipient_address=yamato_req.recipient_address,
+                    recipient_phone=yamato_req.recipient_phone,
+                    error_message="住所の文字数がヤマト運輸の上限（住所欄・建物名欄それぞれ全角16〜32文字相当）を超えています。内容を確認・修正してください。",
+                    detail_json=json.dumps({
+                        "carrier": carrier,
+                        "recipient_name": yamato_req.recipient_name,
+                        "recipient_zip": yamato_req.recipient_zip,
+                        "recipient_phone": yamato_req.recipient_phone,
+                        "suggested_lines": correction["lines"],
+                        "adjustments": correction["adjustments"],
+                    }, ensure_ascii=False),
+                )
+                return db.get_shipment(record_id)
+
         db.update_shipment_record(
             record_id,
             store=store_name,

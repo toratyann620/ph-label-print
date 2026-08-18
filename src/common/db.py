@@ -23,13 +23,16 @@ load_dotenv(os.path.join(PROJECT_ROOT, os.getenv("APP_ENV_FILE", ".env")), overr
 DB_PATH = os.path.join(PROJECT_ROOT, "data", os.getenv("APP_DB_NAME", "app.db"))
 
 STATUS_LABELS = {
-    "processing":            "処理中",
-    "done":                  "発行完了",
-    "error_qr":              "QR読み取り失敗",
-    "error_order_not_found": "Shopify注文が見つかりません",
-    "error_shopify":         "Shopify APIエラー",
-    "error_yamato":          "ヤマトAPIエラー",
-    "error_sagawa":          "佐川APIエラー",
+    "processing":              "処理中",
+    "done":                    "発行完了",
+    "error_qr":                "QR読み取り失敗",
+    "error_order_not_found":   "Shopify注文が見つかりません",
+    "error_shopify":           "Shopify APIエラー",
+    "error_yamato":            "ヤマトAPIエラー",
+    "error_sagawa":            "佐川APIエラー",
+    # 文字数制限のため発行前にローカルでブロックした状態（対応要のエラーではなく、
+    # スマホ画面で住所を確認・修正すればそのまま発行できる状態のため ERROR_STATUSES には含めない）
+    "needs_address_correction": "住所要確認",
 }
 
 ERROR_STATUSES = ("error_qr", "error_order_not_found", "error_shopify", "error_yamato", "error_sagawa")

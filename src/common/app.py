@@ -13,6 +13,7 @@ for _sub in ("common", "shopify", "yamato", "sagawa"):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
+import json
 from datetime import date
 from fastapi import FastAPI, Request, HTTPException, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
@@ -26,6 +27,7 @@ import db
 from config import STORE_CANDIDATES
 import order_sync
 import scan_auth
+from zip_lookup import lookup_address_by_zip
 from issue_slip_from_scan import issue_for_order_name, scan_folder_and_issue, find_order, reprint_for_order_name
 
 PROJECT_ROOT = os.path.dirname(_SRC_DIR)
@@ -349,30 +351,56 @@ async def api_scan_lookup(request: Request, body: ScanOrderRequest):
     force_reissue = db.get_app_settings().get("force_reissue") == "1"
     existing = None if force_reissue else db.find_shipment_by_order_name(order_name)
 
+    # 郵便番号から住所を照合し、Shopify側の都道府県・市区町村と食い違う場合は警告する
+    # （zipcloud呼び出しの失敗・タイムアウト時は照合をスキップし、通常通り進める）
+    zip_mismatch = False
+    zip_suggested_address = None
+    zip_result = await lookup_address_by_zip(recipient["zip"])
+    if zip_result:
+        shopify_area = f"{recipient['province']}{recipient['city']}"
+        zip_area = f"{zip_result['province']}{zip_result['city']}"
+        if shopify_area and zip_area and shopify_area != zip_area:
+            zip_mismatch = True
+            zip_suggested_address = zip_result
+
     return {
         "found": True,
         "order_name": order_name,
         "store": store_name,
         "customer_name": recipient["name"],
+        "customer_phone": recipient["phone"],
+        "customer_zip": recipient["zip"],
+        "customer_address": f"{recipient['province']}{recipient['city']}{recipient['address1']}{recipient['address2']}",
         "already_issued": bool(existing),
         "tracking_number": existing["yamato_tracking_no"] if existing else None,
+        "zip_mismatch": zip_mismatch,
+        "zip_suggested_address": zip_suggested_address,
     }
 
 
 @app.post("/api/scan/issue")
 async def api_scan_issue(request: Request, body: ScanOrderRequest):
-    """スマホからの依頼で送り状を発行し、印刷まで実行する"""
+    """
+    スマホからの依頼で送り状を発行し、印刷まで実行する。
+    body.override が指定されている場合、スマホ画面で確認・修正済みの宛先情報で発行する
+    （文字数オーバー時の自動調整結果の確認後、または郵便番号照合での住所選択後）。
+    """
     if not scan_auth.is_authorized(request):
         raise HTTPException(status_code=401, detail="認証が必要です")
 
-    record = await issue_for_order_name(body.order_name.strip())
-    return {
+    override = body.override.dict() if body.override else None
+    record = await issue_for_order_name(body.order_name.strip(), recipient_override=override)
+
+    response = {
         "status": record["status"],
         "status_label": db.STATUS_LABELS.get(record["status"], record["status"]),
         "tracking_number": record.get("yamato_tracking_no"),
         "print_status": record.get("print_status"),
         "error_message": record.get("error_message"),
     }
+    if record["status"] == "needs_address_correction" and record.get("detail_json"):
+        response["correction"] = json.loads(record["detail_json"])
+    return response
 
 
 @app.post("/api/scan/reprint")
