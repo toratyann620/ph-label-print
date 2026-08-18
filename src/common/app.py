@@ -351,15 +351,18 @@ async def api_scan_lookup(request: Request, body: ScanOrderRequest):
     force_reissue = db.get_app_settings().get("force_reissue") == "1"
     existing = None if force_reissue else db.find_shipment_by_order_name(order_name)
 
-    # 郵便番号から住所を照合し、Shopify側の都道府県・市区町村と食い違う場合は警告する
-    # （zipcloud呼び出しの失敗・タイムアウト時は照合をスキップし、通常通り進める）
+    # 郵便番号から住所を照合し、Shopify側の住所と食い違う場合は警告する
+    # （Shopifyは区・町域がcityではなくaddress1側に入っていることがあるため、
+    #  cityだけの厳密一致ではなく、住所全体（province+city+address1）に
+    #  zipcloud側の町名までの結果が含まれているかで部分一致判定する。
+    #  zipcloud呼び出しの失敗・タイムアウト時は照合をスキップし、通常通り進める）
     zip_mismatch = False
     zip_suggested_address = None
     zip_result = await lookup_address_by_zip(recipient["zip"])
     if zip_result:
-        shopify_area = f"{recipient['province']}{recipient['city']}"
+        full_shopify_address = f"{recipient['province']}{recipient['city']}{recipient['address1']}"
         zip_area = f"{zip_result['province']}{zip_result['city']}"
-        if shopify_area and zip_area and shopify_area != zip_area:
+        if zip_area and zip_area not in full_shopify_address:
             zip_mismatch = True
             zip_suggested_address = zip_result
 

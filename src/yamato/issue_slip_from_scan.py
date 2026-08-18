@@ -162,19 +162,25 @@ def _apply_sagawa_store_settings(sagawa_req: dict, store_name: str) -> dict:
 
 
 def _check_yamato_address_fit(yamato_req) -> dict | None:
-    """ヤマトの宛先住所が文字数制限に収まるかローカルで確認する。収まっていればNoneを返す"""
+    """
+    ヤマトの宛先住所が文字数制限に収まるかローカルで確認する。
+    元の文字列のままで収まっていれば None を返す。何らかの自動調整（半角カタカナ変換等）を
+    行った場合は、その結果として最終的に収まったかどうかに関わらず、必ず確認用の結果を返す
+    （調整が発生したこと自体を必ずスマホ画面で確認できるようにするため）。
+    """
     addr_result = fit_text_to_budget(yamato_req.recipient_address, YAMATO_ADDRESS_MAX_UNITS, width_fn=display_width)
     if yamato_req.recipient_address2:
         addr2_result = fit_text_to_budget(yamato_req.recipient_address2, YAMATO_ADDRESS2_MAX_UNITS, width_fn=display_width)
     else:
         addr2_result = {"text": "", "fits": True, "adjustments": []}
 
-    if addr_result["fits"] and addr2_result["fits"]:
+    adjustments = addr_result["adjustments"] + addr2_result["adjustments"]
+    if not adjustments and addr_result["fits"] and addr2_result["fits"]:
         return None
     return {
         "lines": [addr_result["text"], addr2_result["text"], ""],
         "fits": addr_result["fits"] and addr2_result["fits"],
-        "adjustments": addr_result["adjustments"] + addr2_result["adjustments"],
+        "adjustments": adjustments,
     }
 
 
