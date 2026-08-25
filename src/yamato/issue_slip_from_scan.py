@@ -332,7 +332,7 @@ def _print_pdf_windows(pdf_path: str, printer_name: str | None) -> tuple[bool, s
         return False, f"Windows印刷に失敗しました（送信先: {target_label}）。SumatraPDFの導入を推奨します: {e}"
 
 
-async def issue_yamato_pdf(client: httpx.AsyncClient, store_name: str, order_no: str, yamato_req) -> tuple[bool, dict]:
+async def issue_yamato_pdf(client: httpx.AsyncClient, store_name: str, order_no: str, yamato_req, order_name: str = "") -> tuple[bool, dict]:
     """ヤマトB2クラウドAPIで送り状を発行し、PDFを出力フォルダへ保存する"""
     ship_date = datetime.now().strftime("%Y%m%d")
     # delivery_dateを空文字にすると「日付欄を印字しない」指定になってしまう
@@ -377,6 +377,12 @@ async def issue_yamato_pdf(client: httpx.AsyncClient, store_name: str, order_no:
         "consignee_address":            yamato_req.recipient_address,
         "consignee_address4":           yamato_req.recipient_address2,
         "item_name1":                   yamato_req.item_name,
+        "item_name2":                   "",
+        # 荷扱い1・2（handling_information1/2）は常に「取扱注意」「天地無用」を印字する
+        "handling_information1":        "取扱注意",
+        "handling_information2":        "天地無用",
+        # 記事（note）には注文番号を印字する（全角22文字まで）
+        "note":                         f"注文番号 {order_name}"[:22],
         "is_using_shipment_post_email":     "0",
         "is_using_cons_deli_post_email":    "0",
         "is_using_shipper_deli_post_email": "0",
@@ -660,7 +666,7 @@ async def issue_for_order_name(
         )
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            success, result = await issue_yamato_pdf(client, store_name, order_no, yamato_req)
+            success, result = await issue_yamato_pdf(client, store_name, order_no, yamato_req, order_name)
 
         if not success:
             db.update_shipment_record(record_id, status="error_yamato", error_message=format_yamato_error(result))

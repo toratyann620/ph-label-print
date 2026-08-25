@@ -4,9 +4,24 @@ from datetime import datetime, timedelta, timezone
 import httpx
 from dotenv import load_dotenv
 from models import ShipmentRequest
+from address_format import balance_lines, display_width
 import db
 
 load_dotenv(os.getenv("APP_ENV_FILE", ".env"), override=True)
+
+# ブランド（ストア）ごとの送り主表記・電話番号の既定値。送り元住所自体は
+# 全ブランド共通（store_settingsで店舗ごとに上書きされていなければこの既定値を使う）
+SENDER_DEFAULTS = {
+    "PHOTOPRI": {"name": "PHOTOPRI", "phone": "070-9296-0635"},
+    "E1":       {"name": "e1", "phone": "070-9299-4376"},
+    "ARTGRAPH": {"name": "artgraph.", "phone": "070-9278-8828"},
+    "QOO":      {"name": "Qoo", "phone": "070-9278-8828"},
+}
+
+# ヤマトAPI item_name1（品名称1）の上限は全角換算50単位（全角25文字/半角50文字）
+YAMATO_ITEM_NAME_MAX_UNITS = 50
+# 佐川API kiji1（記事＝品名用に流用）の上限は文字数ベースで32文字
+SAGAWA_KIJI_MAX_CHARS = 32
 
 PROVINCE_MAP = {
     "01": "北海道", "02": "青森県", "03": "岩手県", "04": "宮城県", "05": "秋田県",
@@ -200,25 +215,27 @@ class ShopifyClient:
         recipient = self.extract_recipient(order)
 
         # 品名の決定 (Line Items of the first item)
+        # item_name1の上限（全角換算50単位）いっぱいまで商品名を使う（文字数の許す範囲で）
         line_items = order.get("line_items") or []
-        item_name = ""
         if line_items:
-            item_name = line_items[0].get("title", line_items[0].get("name", "商品"))
-            # 2品以上ある場合は「外」を付与
+            raw_item_name = line_items[0].get("title", line_items[0].get("name", "商品"))
             if len(line_items) > 1:
-                item_name = f"{item_name[:20]}外"
+                # 2品以上ある場合は「外」を付与する分、その幅（全角1文字=2単位）を差し引く
+                budget = YAMATO_ITEM_NAME_MAX_UNITS - display_width("外")
+                item_name = balance_lines(raw_item_name, budget, width_fn=display_width)[0] + "外"
             else:
-                item_name = item_name[:25]
+                item_name = balance_lines(raw_item_name, YAMATO_ITEM_NAME_MAX_UNITS, width_fn=display_width)[0]
         else:
             item_name = "印刷商品"
 
-        # ご依頼主（送り主）の情報のデフォルト値
+        # ご依頼主（送り主）の情報のデフォルト値（ブランドごとの表記・電話番号）
         # （実際の値は基本的に store_settings で店舗ごとに上書きされる。 db.get_store_settings() 参照）
-        sender_name = "株式会社PHOTOPRI"
+        sender_defaults = SENDER_DEFAULTS.get(self.store_prefix, SENDER_DEFAULTS["PHOTOPRI"])
+        sender_name = sender_defaults["name"]
         sender_zip = "173-0004"
         sender_address = "東京都板橋区板橋１丁目９−１０"
         sender_address2 = "3F"
-        sender_phone = "070-9296-0635"
+        sender_phone = sender_defaults["phone"]
 
         # 送り状種類（ネコポス/コレクト(代金引換)/発払い）は注文タグから判定
         service_type = db.classify_yamato_service_type(order.get("tags", ""))
@@ -252,19 +269,20 @@ class ShopifyClient:
     def map_order_to_sagawa_request(self, order: dict) -> dict:
         """
         Shopifyの注文情報を佐川急便 即時発行API（sokuji）のリクエスト用dictにマッピングする。
-        送り元情報は既定でPHOTOPRIの情報とし、実際の値は issue_slip_from_scan.py 側で
-        store_settings により店舗ごとに上書きされる（ヤマトの _apply_store_settings と同様）。
+        送り元情報は既定でブランドごとの表記・電話番号（SENDER_DEFAULTS）とし、実際の値は
+        issue_slip_from_scan.py 側で store_settings により店舗ごとに上書きされる
+        （ヤマトの _apply_store_settings と同様）。
         """
         recipient = self.extract_recipient(order)
 
         line_items = order.get("line_items") or []
         if line_items:
             item_name = line_items[0].get("title", line_items[0].get("name", "商品"))
-            # 佐川の記事欄(kiji1)は32文字まで印字可能
+            # 佐川の記事欄(kiji1、品名用に流用)は32文字まで印字可能
             if len(line_items) > 1:
-                item_name = f"{item_name[:28]}外"
+                item_name = f"{item_name[:SAGAWA_KIJI_MAX_CHARS - 1]}外"
             else:
-                item_name = item_name[:32]
+                item_name = item_name[:SAGAWA_KIJI_MAX_CHARS]
         else:
             item_name = "印刷商品"
 
@@ -286,11 +304,11 @@ class ShopifyClient:
             "recipient_address2": recipient["address1"][:25],
             "recipient_address3": recipient["address2"][:25],
             "recipient_phone":    recipient["phone"],
-            "sender_name":     "株式会社PHOTOPRI",
+            "sender_name":     SENDER_DEFAULTS.get(self.store_prefix, SENDER_DEFAULTS["PHOTOPRI"])["name"],
             "sender_zip":      "173-0004",
             "sender_address1": "東京都板橋区板橋１丁目９−１０",
             "sender_address2": "3F",
-            "sender_phone":    "070-9296-0635",
+            "sender_phone":    SENDER_DEFAULTS.get(self.store_prefix, SENDER_DEFAULTS["PHOTOPRI"])["phone"],
             "item_name": item_name,
             "is_cod": is_cod,
             "cod_amount": cod_amount,

@@ -108,7 +108,8 @@ async def issue_sagawa_pdf(client, store_name: str, order_no: str, sagawa_req: d
         "iraiMailAddress": "",
         "shippingDate": "",
         "kiji1": sagawa_req["item_name"],
-        "kiji2": "", "kiji3": "", "kiji4": "", "kiji5": "", "kiji6": "",
+        "kiji2": f"注文番号 {sagawa_req['user_manage_number']}"[:32],
+        "kiji3": "", "kiji4": "", "kiji5": "", "kiji6": "",
         "binsyuCode": "000",  # 陸便
         "daibikiFlg": "1" if sagawa_req["is_cod"] else "0",
         "daibikiType": "",
@@ -118,7 +119,8 @@ async def issue_sagawa_pdf(client, store_name: str, order_no: str, sagawa_req: d
         "daibikiKingaku": sagawa_req["cod_amount"] if sagawa_req["is_cod"] else "",
         "daibikiTax": sagawa_req["cod_tax"] if sagawa_req["is_cod"] else "",
         "weight1": "", "weight2": "",
-        "careSeal1": "", "careSeal2": "", "careSeal3": "",
+        # 取扱注意(011)・天地無用(013)のケアマークシールを常に付与する
+        "careSeal1": "011", "careSeal2": "013", "careSeal3": "",
         "hokenKingaku": "",
         "eidomeFlg": "",
         "depotCode": "",
