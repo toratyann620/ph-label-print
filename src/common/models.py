@@ -62,3 +62,4 @@ class RecipientOverride(BaseModel):
 class ScanOrderRequest(BaseModel):
     order_name: str
     override: Optional[RecipientOverride] = None
+    ship_timing: str = "today"   # "today"（本日出荷） | "next_business_day"（翌営業日出荷）

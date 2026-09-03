@@ -6,7 +6,7 @@ QRコード付き注文明細PDFからヤマト送り状を発行する。
   2. 複数ストア（PHOTOPRI/ARTGRAPH/E1/QOO）から該当注文をShopify APIで検索
   3. ヤマトB2クラウドAPIで送り状を発行
   4. 送り状PDFを出力フォルダ（設定の output_folder、既定は output/）に保存
-  5. 発行できたらShopify注文に設定タグ（issue_tag）を付与
+  5. 発行できたらShopify注文に配送方法ごとの設定タグ（issue_tag_yamato/sagawa/nekopos）を付与
 
 各ステップの結果は db.py 経由で shipments テーブルに記録され、
 管理画面（処理状況一覧・発行履歴・エラー一覧）に反映される。
@@ -27,7 +27,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import httpx
 from dotenv import load_dotenv
@@ -73,6 +73,21 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 def _resolve_path(path: str) -> str:
     """設定のフォルダパスをプロジェクトルート基準の絶対パスに解決する"""
     return path if os.path.isabs(path) else os.path.join(PROJECT_ROOT, path)
+
+
+def _compute_shipment_date(ship_timing: str) -> str:
+    """
+    出荷予定日（YYYYMMDD）を計算する。スマホ画面での手動選択に基づく。
+    "next_business_day"の場合、土日を除いた翌営業日にする（祝日は考慮しないため、
+    年末年始等はスタッフが手動で発行を見送るなどの運用でカバーする想定）。
+    """
+    today = datetime.now()
+    if ship_timing != "next_business_day":
+        return today.strftime("%Y%m%d")
+    next_day = today + timedelta(days=1)
+    while next_day.weekday() >= 5:  # 5:土曜, 6:日曜
+        next_day += timedelta(days=1)
+    return next_day.strftime("%Y%m%d")
 
 
 def format_yamato_error(result: dict) -> str:
@@ -305,10 +320,11 @@ def _print_pdf_windows(pdf_path: str, printer_name: str | None) -> tuple[bool, s
         # 印刷結果だけ白紙になる事例が確認されたため、ページを画像化した簡易PDFを
         # 印刷対象にする（互換性問題の回避）。
         print_source = _flatten_pdf_for_print(pdf_path)
-        # -print-settings fit: PDFのページサイズと実際にセットされている用紙サイズが
-        # 一致しない場合に、原寸のまま印字して用紙の外に大部分がはみ出す（結果的に
-        # 白紙に見える）事態を防ぐため、用紙に収まるよう自動的に拡大縮小させる。
-        cmd = [sumatra, "-silent", "-exit-when-done", "-print-settings", "fit"]
+        # -print-settings noscale: 白紙印刷の根本原因はPDF内の複製防止マスク
+        # （_flatten_pdf_for_print側で除去済み）であり、用紙サイズの不一致ではなかった
+        # （実際の用紙はA4普通紙・PDFもA4サイズで一致）。"fit"による自動拡大縮小は
+        # わずかな位置ズレの原因になるため、原寸100%で印刷する。
+        cmd = [sumatra, "-silent", "-exit-when-done", "-print-settings", "noscale"]
         cmd += ["-print-to", printer_name] if printer_name else ["-print-to-default"]
         cmd.append(print_source)
         try:
@@ -332,9 +348,9 @@ def _print_pdf_windows(pdf_path: str, printer_name: str | None) -> tuple[bool, s
         return False, f"Windows印刷に失敗しました（送信先: {target_label}）。SumatraPDFの導入を推奨します: {e}"
 
 
-async def issue_yamato_pdf(client: httpx.AsyncClient, store_name: str, order_no: str, yamato_req, order_name: str = "") -> tuple[bool, dict]:
+async def issue_yamato_pdf(client: httpx.AsyncClient, store_name: str, order_no: str, yamato_req, order_name: str = "", shipment_date: str | None = None) -> tuple[bool, dict]:
     """ヤマトB2クラウドAPIで送り状を発行し、PDFを出力フォルダへ保存する"""
-    ship_date = datetime.now().strftime("%Y%m%d")
+    ship_date = shipment_date or datetime.now().strftime("%Y%m%d")
     # delivery_dateを空文字にすると「日付欄を印字しない」指定になってしまう
     # （公式仕様書 No.6: ※入力なしの場合、印字されません）。最短日を指定・印字させる
     # には、YYYYMMDD形式の代わりに全角文字列 "最短日" を明示的に送る必要がある。
@@ -526,6 +542,7 @@ async def issue_for_order_name(
     source_pdf: str | None = None,
     skip_print: bool = False,
     recipient_override: dict | None = None,
+    ship_timing: str = "today",
 ) -> dict:
     """
     注文番号（Shopify注文名, 例: "#P33986"）1件を、Shopify注文検索〜ヤマト送り状発行〜
@@ -534,8 +551,11 @@ async def issue_for_order_name(
     skip_print=True の場合、PDF発行までで印刷は行わない（照合スクリプト等での利用を想定）。
     recipient_override が指定された場合、Shopify由来の宛先氏名・郵便番号・住所・電話番号を
     この内容（スマホ画面で確認・修正済み）で上書きし、文字数チェックは行わずそのまま発行する。
+    ship_timing は "today"（本日出荷）または "next_business_day"（翌営業日出荷）。
+    出荷締め後や悪天候時などにスマホ画面で手動選択する（時間による自動判定は行わない）。
     """
     db.init_db()
+    shipment_date = _compute_shipment_date(ship_timing)
 
     # 二重発行防止: 既に発行完了している注文番号は再度ヤマトAPIを呼ばない
     # （テスト期間中、設定でforce_reissueが有効な場合のみこのチェックをスキップし、
@@ -569,8 +589,11 @@ async def issue_for_order_name(
         return db.get_shipment(record_id)
 
     order_no = str(order.get("order_number"))
-    # Shopify注文タグから配送業者を自動判定する（処理状況一覧の表示にも使う db.classify_shipping_method と同じ判定）
-    carrier = "sagawa" if db.classify_shipping_method(order.get("tags", "")) == "佐川" else "yamato"
+    # Shopify注文タグから発送方法を判定する（処理状況一覧の表示と同じ判定。
+    # carrierはAPI振り分け用でヤマト/佐川の2値、shipping_methodはタグ付与用で
+    # ネコポスも区別する3値）
+    shipping_method = db.classify_shipping_method(order.get("tags", ""))
+    carrier = "sagawa" if shipping_method == "佐川" else "yamato"
 
     if carrier == "sagawa":
         sagawa_req = _apply_sagawa_store_settings(shopify.map_order_to_sagawa_request(order), store_name)
@@ -613,7 +636,7 @@ async def issue_for_order_name(
 
         output_dir = _resolve_path(db.get_app_settings()["output_folder"])
         async with httpx.AsyncClient(timeout=60.0) as client:
-            success, result = await issue_sagawa_pdf(client, store_name, order_no, sagawa_req, output_dir)
+            success, result = await issue_sagawa_pdf(client, store_name, order_no, sagawa_req, output_dir, shipping_date=shipment_date)
 
         if not success:
             db.update_shipment_record(record_id, status="error_sagawa", error_message=format_sagawa_error(result))
@@ -666,7 +689,7 @@ async def issue_for_order_name(
         )
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            success, result = await issue_yamato_pdf(client, store_name, order_no, yamato_req, order_name)
+            success, result = await issue_yamato_pdf(client, store_name, order_no, yamato_req, order_name, shipment_date)
 
         if not success:
             db.update_shipment_record(record_id, status="error_yamato", error_message=format_yamato_error(result))
@@ -682,8 +705,14 @@ async def issue_for_order_name(
 
     db.mark_order_issued(order_name, record_id)
 
-    # Shopify注文へのタグ付与（失敗しても送り状発行自体は成功扱いのまま、タグ状況だけ記録する）
-    issue_tag = db.get_app_settings()["issue_tag"]
+    # Shopify注文へのタグ付与（配送方法ごとに別タグ。失敗しても送り状発行自体は
+    # 成功扱いのまま、タグ状況だけ記録する）
+    issue_tag_key = {
+        "ヤマト": "issue_tag_yamato",
+        "佐川": "issue_tag_sagawa",
+        "ネコポス": "issue_tag_nekopos",
+    }.get(shipping_method)
+    issue_tag = db.get_app_settings().get(issue_tag_key, "") if issue_tag_key else ""
     if issue_tag:
         try:
             await shopify.add_order_tag(order.get("id"), issue_tag)

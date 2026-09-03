@@ -285,7 +285,9 @@ async def admin_settings_global_save(
     scan_folder: str = Form("input"),
     output_folder: str = Form("output"),
     archive_folder: str = Form("output/archive"),
-    issue_tag: str = Form(""),
+    issue_tag_yamato: str = Form(""),
+    issue_tag_sagawa: str = Form(""),
+    issue_tag_nekopos: str = Form(""),
     scan_pin: str = Form(""),
     admin_pin: str = Form(""),
     force_reissue: str = Form(""),
@@ -299,7 +301,9 @@ async def admin_settings_global_save(
         scan_folder=scan_folder,
         output_folder=output_folder,
         archive_folder=archive_folder,
-        issue_tag=issue_tag,
+        issue_tag_yamato=issue_tag_yamato,
+        issue_tag_sagawa=issue_tag_sagawa,
+        issue_tag_nekopos=issue_tag_nekopos,
         scan_pin=scan_pin,
         admin_pin=admin_pin,
         force_reissue=("1" if force_reissue == "on" else "0"),
@@ -392,7 +396,11 @@ async def api_scan_issue(request: Request, body: ScanOrderRequest):
         raise HTTPException(status_code=401, detail="認証が必要です")
 
     override = body.override.dict() if body.override else None
-    record = await issue_for_order_name(body.order_name.strip(), recipient_override=override)
+    record = await issue_for_order_name(
+        body.order_name.strip(),
+        recipient_override=override,
+        ship_timing=body.ship_timing,
+    )
 
     response = {
         "status": record["status"],

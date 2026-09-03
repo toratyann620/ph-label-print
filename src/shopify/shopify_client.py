@@ -13,9 +13,9 @@ load_dotenv(os.getenv("APP_ENV_FILE", ".env"), override=True)
 # 全ブランド共通（store_settingsで店舗ごとに上書きされていなければこの既定値を使う）
 SENDER_DEFAULTS = {
     "PHOTOPRI": {"name": "PHOTOPRI", "phone": "070-9296-0635"},
-    "E1":       {"name": "e1", "phone": "070-9299-4376"},
+    "E1":       {"name": "イーワン大判プリント", "phone": "070-9299-4376"},
     "ARTGRAPH": {"name": "artgraph.", "phone": "070-9278-8828"},
-    "QOO":      {"name": "Qoo", "phone": "070-9278-8828"},
+    "QOO":      {"name": "うちの子グッズQoo", "phone": "070-9278-8828"},
 }
 
 # ヤマトAPI item_name1（品名称1）の上限は全角換算50単位（全角25文字/半角50文字）

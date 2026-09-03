@@ -81,7 +81,7 @@ def format_sagawa_error(result: dict) -> str:
     return str(result)
 
 
-async def issue_sagawa_pdf(client, store_name: str, order_no: str, sagawa_req: dict, output_dir: str) -> tuple[bool, dict]:
+async def issue_sagawa_pdf(client, store_name: str, order_no: str, sagawa_req: dict, output_dir: str, shipping_date: str = "") -> tuple[bool, dict]:
     """佐川急便 即時発行API（sokuji）で送り状を発行し、PDFを出力フォルダへ保存する"""
     print_data_detail = {
         "haisoKosu": "1",
@@ -106,7 +106,7 @@ async def issue_sagawa_pdf(client, store_name: str, order_no: str, sagawa_req: d
         "iraiYubin": sagawa_req["sender_zip"].replace("-", ""),
         "iraiTel": sagawa_req["sender_phone"],
         "iraiMailAddress": "",
-        "shippingDate": "",
+        "shippingDate": shipping_date,
         "kiji1": sagawa_req["item_name"],
         "kiji2": f"注文番号 {sagawa_req['user_manage_number']}"[:32],
         "kiji3": "", "kiji4": "", "kiji5": "", "kiji6": "",

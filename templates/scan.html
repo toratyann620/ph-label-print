@@ -92,6 +92,15 @@
     font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;
   }
 
+  .ship-timing { display: flex; flex-direction: column; gap: 6px; }
+  .ship-timing .label { font-size: 11px; color: #999; }
+  .ship-timing .options { display: flex; gap: 8px; }
+  .ship-timing .opt {
+    flex: 1; padding: 10px 6px; border: 1.5px solid #ddd; border-radius: 8px; background: #fff;
+    color: #555; font-size: 13px; font-weight: 600; cursor: pointer; text-align: center;
+  }
+  .ship-timing .opt.selected { border-color: #e8401c; background: #fdeceb; color: #c0321a; }
+
   .spinner {
     width: 34px; height: 34px; border: 3px solid rgba(255,255,255,.25); border-top-color: #e8401c;
     border-radius: 50%; animation: spin .8s linear infinite;
@@ -147,6 +156,7 @@
 
   let stream = null;
   let scanning = false;
+  let selectedShipTiming = 'today';   // 'today' | 'next_business_day'（発行ボタンを押した時点の選択を使う）
 
   function showOnly(el) {
     [viewIdle, viewCamera, viewLoading, viewResult].forEach(v => v.style.display = 'none');
@@ -215,6 +225,33 @@
     return `<a class="phone-link" href="tel:${escapeHtml(phone)}">📞 ${escapeHtml(phone)}</a>`;
   }
 
+  // 出荷日（本日／翌営業日）の選択UI。時間による自動判定はせず、必ず手動選択させる。
+  function shipTimingToggleHtml() {
+    return `
+      <div class="ship-timing">
+        <div class="label">出荷日</div>
+        <div class="options">
+          <div class="opt selected" id="opt-ship-today" data-value="today">本日出荷</div>
+          <div class="opt" id="opt-ship-next" data-value="next_business_day">翌営業日出荷</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function wireShipTimingToggle() {
+    selectedShipTiming = 'today';
+    const optToday = document.getElementById('opt-ship-today');
+    const optNext = document.getElementById('opt-ship-next');
+    if (!optToday || !optNext) return;
+    [optToday, optNext].forEach(opt => {
+      opt.addEventListener('click', () => {
+        selectedShipTiming = opt.dataset.value;
+        optToday.classList.toggle('selected', opt === optToday);
+        optNext.classList.toggle('selected', opt === optNext);
+      });
+    });
+  }
+
   // 住所編集フォーム（郵便番号食い違い時・文字数オーバー時の修正、両方で共用）
   function addressFormFieldsHtml(initial) {
     const lines = (initial.lines || []).concat(['', '', '']).slice(0, 3);
@@ -279,6 +316,7 @@
           name: data.customer_name, zip: data.customer_zip, phone: data.customer_phone,
           lines: [data.customer_address || '', '', ''],
         })}
+        ${shipTimingToggleHtml()}
         <button class="btn" id="btn-issue">送り状発行</button>
         <button class="btn secondary" id="btn-rescan">もう一度スキャン</button>
       `;
@@ -286,6 +324,7 @@
         if (!data.zip_suggested_address) return;
         document.getElementById('f-line1').value = zipAddr;
       });
+      wireShipTimingToggle();
       document.getElementById('btn-issue').addEventListener('click', () => issueShipment(data.order_name, collectAddressFormValues()));
       document.getElementById('btn-rescan').addEventListener('click', startCamera);
       showOnly(viewResult);
@@ -298,9 +337,11 @@
       <div class="field"><div class="label">お客様名</div><div class="value">${escapeHtml(data.customer_name || '-')}</div></div>
       <div class="field"><div class="label">電話番号</div><div class="value">${phoneLinkHtml(data.customer_phone)}</div></div>
       <div class="field"><div class="label">ストア</div><div class="value">${escapeHtml(data.store || '-')}</div></div>
+      ${shipTimingToggleHtml()}
       <button class="btn" id="btn-issue">送り状発行</button>
       <button class="btn secondary" id="btn-rescan">もう一度スキャン</button>
     `;
+    wireShipTimingToggle();
     document.getElementById('btn-issue').addEventListener('click', () => issueShipment(data.order_name));
     document.getElementById('btn-rescan').addEventListener('click', startCamera);
     showOnly(viewResult);
@@ -310,10 +351,12 @@
     showOnly(viewLoading);
     document.getElementById('loading-text').textContent = '送り状を発行中...（数秒かかります）';
     try {
+      const payload = { order_name: orderName, ship_timing: selectedShipTiming };
+      if (override) payload.override = override;
       const res = await fetch('/api/scan/issue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(override ? { order_name: orderName, override } : { order_name: orderName }),
+        body: JSON.stringify(payload),
       });
       if (res.status === 401) { location.href = '/scan/login'; return; }
       const data = await res.json();
@@ -357,8 +400,10 @@
         <div class="field"><div class="label">伝票番号</div><div class="value">${escapeHtml(data.tracking_number || '-')}</div></div>
         <span class="status-pill ${printed ? 'status-ok' : 'status-warn'}">${printed ? '印刷を送信しました' : '印刷エラー'}</span>
         <div class="field"><div class="label">印刷ステータス詳細</div><div class="value" style="font-size:12px;font-weight:400;">${escapeHtml(data.print_status || '-')}</div></div>
+        <button class="btn secondary" id="btn-reprint-now">再印刷</button>
         <button class="btn" id="btn-next">次のスキャンへ</button>
       `;
+      document.getElementById('btn-reprint-now').addEventListener('click', () => reprintShipment(orderName));
     } else {
       resultCard.innerHTML = `
         <div class="kicker">発行エラー</div>

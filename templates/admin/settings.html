@@ -62,9 +62,17 @@
         <div class="field-hint">スキャン実行で読み取り済みの指示書PDFを移動する先。既定: output/archive</div>
       </div>
       <div class="field">
-        <label>発行後にShopify注文へ付与するタグ</label>
-        <input type="text" name="issue_tag" value="{{ app_settings.issue_tag }}">
-        <div class="field-hint">送り状発行が完了したShopify注文に自動で追加されるタグです。</div>
+        <label>発行後にShopify注文へ付与するタグ（ヤマト）</label>
+        <input type="text" name="issue_tag_yamato" value="{{ app_settings.issue_tag_yamato }}">
+      </div>
+      <div class="field">
+        <label>発行後にShopify注文へ付与するタグ（佐川）</label>
+        <input type="text" name="issue_tag_sagawa" value="{{ app_settings.issue_tag_sagawa }}">
+      </div>
+      <div class="field">
+        <label>発行後にShopify注文へ付与するタグ（ネコポス）</label>
+        <input type="text" name="issue_tag_nekopos" value="{{ app_settings.issue_tag_nekopos }}">
+        <div class="field-hint">送り状発行が完了したShopify注文に、実際に使われた配送方法に応じて自動で追加されるタグです。</div>
       </div>
       <div class="field">
         <label>スマホQRスキャン画面のPIN</label>

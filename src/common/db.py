@@ -69,7 +69,11 @@ APP_SETTINGS_DEFAULTS = {
     "scan_folder":    "input",
     "output_folder":  "output",
     "archive_folder": "output/archive",
-    "issue_tag":      "ヤマト送り状発行済み",
+    # 発行後にShopify注文へ付与するタグ（配送方法ごとに別タグにする。
+    # 「ヤマト送り状発行済み」の1種類だとネコポスかどうかが分からず社内運用上困るため）
+    "issue_tag_yamato":  "ヤマト送り状発行済み",
+    "issue_tag_sagawa":  "佐川送り状発行済み",
+    "issue_tag_nekopos": "ネコポス送り状発行済み",
     "scan_pin":       "",   # スマホQRスキャン画面のPIN（設定画面で変更可能）
     "scan_secret":    "",   # PIN認証Cookie署名用の秘密鍵（自動生成）
     "admin_pin":      "",   # 管理画面(/admin)のPIN
