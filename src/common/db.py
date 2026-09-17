@@ -33,6 +33,9 @@ STATUS_LABELS = {
     # 文字数制限のため発行前にローカルでブロックした状態（対応要のエラーではなく、
     # スマホ画面で住所を確認・修正すればそのまま発行できる状態のため ERROR_STATUSES には含めない）
     "needs_address_correction": "住所要確認",
+    # スタッフが誤操作による破棄を行った状態（発行済みAPIデータ自体は取り消せないため、
+    # あくまでこのシステム内で二重発行防止の対象から外すための記録）
+    "discarded": "誤操作による破棄",
 }
 
 ERROR_STATUSES = ("error_qr", "error_order_not_found", "error_shopify", "error_yamato", "error_sagawa")

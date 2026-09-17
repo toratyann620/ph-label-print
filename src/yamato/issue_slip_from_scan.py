@@ -765,6 +765,31 @@ async def reprint_for_order_name(order_name: str) -> dict:
     }
 
 
+async def discard_shipment_for_order_name(order_name: str) -> dict:
+    """
+    誤操作（間違った注文をスキャンした・二重タップした等）により発行してしまった
+    送り状を、このシステム上で「破棄」扱いにする。
+    status を "done" から "discarded" に変更することで二重発行防止の対象から外れ、
+    同じ注文番号を改めて正しくスキャン・発行できるようになる。
+
+    重要な注意点: ヤマト・佐川いずれのAPIにも発行済み送り状の取消機能が存在しないため、
+    これは本システム内の記録上の処理に過ぎない。すでに発行された伝票番号・出荷データは
+    ヤマト/佐川側にそのまま残るため、誤発行された紙の送り状は物理的に破棄する必要がある。
+    """
+    db.init_db()
+    existing = db.find_shipment_by_order_name(order_name)
+    if not existing:
+        return {"found": False, "error": f"注文 '{order_name}' の発行済み送り状が見つかりませんでした"}
+
+    note = f"[誤操作による破棄: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]"
+    db.update_shipment_record(
+        existing["id"],
+        status="discarded",
+        error_message=note,
+    )
+    return {"found": True, "order_name": order_name}
+
+
 async def process_scanned_pdf(pdf_path: str) -> dict:
     """スキャンPDF1件をQR読取〜発行まで処理する（QR読取失敗時はerror_qrとして記録）"""
     db.init_db()

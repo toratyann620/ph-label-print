@@ -28,7 +28,10 @@ from config import STORE_CANDIDATES
 import order_sync
 import scan_auth
 from zip_lookup import lookup_address_by_zip
-from issue_slip_from_scan import issue_for_order_name, scan_folder_and_issue, find_order, reprint_for_order_name
+from issue_slip_from_scan import (
+    issue_for_order_name, scan_folder_and_issue, find_order, reprint_for_order_name,
+    discard_shipment_for_order_name, DEFAULT_PRINTER_NAME,
+)
 
 PROJECT_ROOT = os.path.dirname(_SRC_DIR)
 
@@ -370,6 +373,9 @@ async def api_scan_lookup(request: Request, body: ScanOrderRequest):
             zip_mismatch = True
             zip_suggested_address = zip_result
 
+    store_settings = db.get_store_settings(store_name)
+    printer_name = (store_settings or {}).get("printer_name") or DEFAULT_PRINTER_NAME
+
     return {
         "found": True,
         "order_name": order_name,
@@ -380,6 +386,7 @@ async def api_scan_lookup(request: Request, body: ScanOrderRequest):
         "customer_address": f"{recipient['province']}{recipient['city']}{recipient['address1']}{recipient['address2']}",
         "already_issued": bool(existing),
         "tracking_number": existing["yamato_tracking_no"] if existing else None,
+        "printer_name": printer_name,
         "zip_mismatch": zip_mismatch,
         "zip_suggested_address": zip_suggested_address,
     }
@@ -421,6 +428,20 @@ async def api_scan_reprint(request: Request, body: ScanOrderRequest):
         raise HTTPException(status_code=401, detail="認証が必要です")
 
     return await reprint_for_order_name(body.order_name.strip())
+
+
+@app.post("/api/scan/discard")
+async def api_scan_discard(request: Request, body: ScanOrderRequest):
+    """
+    誤操作により発行してしまった送り状を、このシステム上で破棄扱いにする。
+    ヤマト/佐川側の実データ（伝票番号・出荷データ）は取り消せない点に注意
+    （両社ともAPIに取消機能が存在しない）。二重発行防止の対象から外れるため、
+    同じ注文番号を改めて正しくスキャン・発行できるようになる。
+    """
+    if not scan_auth.is_authorized(request):
+        raise HTTPException(status_code=401, detail="認証が必要です")
+
+    return await discard_shipment_for_order_name(body.order_name.strip())
 
 
 if __name__ == "__main__":
