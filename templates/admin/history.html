@@ -77,6 +77,7 @@
             {% else %}
             <form class="fulfill-form" method="post" action="/admin/fulfill">
               <input type="hidden" name="record_id" value="{{ row.id }}">
+              <input type="hidden" name="redirect_to" value="/admin/history">
               <label><input type="checkbox" name="notify_customer" checked>発送通知メールを送る</label>
               <button type="submit" class="fulfill-btn">発送済みにする</button>
               {% if row.shopify_fulfillment_status %}

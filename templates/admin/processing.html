@@ -24,6 +24,15 @@
   .method-sagawa  { background: #eef2ff; color: #3b3fc7; }
   .method-nekopos { background: #fdf2ff; color: #a021c7; }
   .method-other   { background: #f1f1f1; color: #777; }
+  .fulfill-form { display: flex; flex-direction: column; gap: 4px; min-width: 110px; }
+  .fulfill-form label { font-size: 11px; color: #555; display: flex; align-items: center; gap: 4px; }
+  .fulfill-form label input { width: auto; }
+  .fulfill-btn {
+    padding: 5px 10px; background: #1a1a2e; color: #fff; border: none; border-radius: 6px;
+    font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  .fulfill-btn:hover { background: #2e2e48; }
+  .fulfill-error { font-size: 10px; color: #c0321a; margin-top: 2px; word-break: break-all; }
 </style>
 {% endblock %}
 {% block content %}
@@ -33,6 +42,8 @@
   {% if issued %}<div class="toast">選択した {{ issued }} 件の送り状発行処理を実行しました。</div>{% endif %}
   {% if scanned %}<div class="toast">inputフォルダの {{ scanned }} 件を読み取り、送り状発行処理を実行しました。エラー・要対応もあわせてご確認ください。</div>{% endif %}
   {% if sync_result and sync_result.error %}<div class="toast" style="background:#fdeceb;border-color:#fca5a5;color:#c0321a;">Shopify同期でエラーが発生しました: {{ sync_result.error }}</div>{% endif %}
+  {% if fulfilled == 'success' %}<div class="toast">Shopify側を発送済みにしました。</div>{% endif %}
+  {% if fulfilled == 'failed' %}<div class="toast" style="background:#fdeceb;border-color:#fca5a5;color:#c0321a;">発送済み処理に失敗しました。発行履歴でエラー内容をご確認ください。</div>{% endif %}
 
   <div class="mode-banner">
     <div class="mode-label">
@@ -65,6 +76,7 @@
             <th>お届け先</th>
             <th>発送方法</th>
             <th>ステータス</th>
+            <th>発送済み(Shopify)</th>
           </tr>
         </thead>
         <tbody>
@@ -99,6 +111,25 @@
                 {% endif %}
               {% else %}
               <span class="badge-status" style="background:#eee;color:#777;">未処理</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if row.yamato_status != 'issued' or not row.shipment_id %}
+              -
+              {% elif row.shopify_fulfillment_status and row.shopify_fulfillment_status.startswith('ok') %}
+              <span class="badge-status badge-done">発送済み</span>
+              {% elif row.shopify_fulfillment_status == 'skipped_backlog' %}
+              <span class="badge-status" style="background:#eee;color:#777;">対象外（導入前）</span>
+              {% else %}
+              <form class="fulfill-form" method="post" action="/admin/fulfill">
+                <input type="hidden" name="record_id" value="{{ row.shipment_id }}">
+                <input type="hidden" name="redirect_to" value="/admin/processing">
+                <label><input type="checkbox" name="notify_customer" checked>発送通知メールを送る</label>
+                <button type="submit" class="fulfill-btn">発送済みにする</button>
+                {% if row.shopify_fulfillment_status %}
+                <div class="fulfill-error" title="{{ row.shopify_fulfillment_status }}">{{ row.shopify_fulfillment_status }}</div>
+                {% endif %}
+              </form>
               {% endif %}
             </td>
           </tr>

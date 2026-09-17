@@ -155,7 +155,7 @@ async def admin_root(request: Request):
 
 
 @app.get("/admin/processing", response_class=HTMLResponse)
-async def admin_processing(request: Request, synced: str = "", issued: str = "", scanned: str = ""):
+async def admin_processing(request: Request, synced: str = "", issued: str = "", scanned: str = "", fulfilled: str = ""):
     if (redirect := _require_admin(request)) is not None:
         return redirect
     sync_result = None
@@ -165,11 +165,16 @@ async def admin_processing(request: Request, synced: str = "", issued: str = "",
         sync_result = {"error": str(e)}
 
     rows = db.list_orders_cache()
+    # 発送済み(Shopify)の現在状態を表示するため、紐づく発行レコードから補完する
+    for row in rows:
+        shipment = db.get_shipment(row["shipment_id"]) if row.get("shipment_id") else None
+        row["shopify_fulfillment_status"] = (shipment or {}).get("shopify_fulfillment_status")
+
     settings = db.get_app_settings()
     return templates.TemplateResponse("admin/processing.html", {
         "request": request, "active": "processing", "counts": _nav_counts(),
         "rows": rows, "sync_result": sync_result, "issue_mode": settings["issue_mode"],
-        "synced": synced, "issued": issued, "scanned": scanned,
+        "synced": synced, "issued": issued, "scanned": scanned, "fulfilled": fulfilled,
     })
 
 
@@ -224,13 +229,22 @@ TRACKING_COMPANY_NAMES = {
 
 
 @app.post("/admin/fulfill", include_in_schema=False)
-async def admin_fulfill(request: Request, record_id: int = Form(...), notify_customer: str = Form("")):
+async def admin_fulfill(
+    request: Request,
+    record_id: int = Form(...),
+    notify_customer: str = Form(""),
+    redirect_to: str = Form("/admin/history"),
+):
     """
-    発行履歴の注文1件を、Shopify上で「発送済み」（フルフィルメント）にする。
+    送り状発行済みの注文1件を、Shopify上で「発送済み」（フルフィルメント）にする。
     notify_customerがチェックされていれば、Shopifyから発送通知メールが送信される。
+    発行履歴・処理状況一覧のどちらからも呼ばれる（redirect_toで呼び出し元に戻す）。
     """
     if (redirect := _require_admin(request)) is not None:
         return redirect
+
+    if redirect_to not in ("/admin/history", "/admin/processing"):
+        redirect_to = "/admin/history"
 
     record = db.get_shipment(record_id)
     if not record:
@@ -253,7 +267,7 @@ async def admin_fulfill(request: Request, record_id: int = Form(...), notify_cus
         db.update_shipment_record(record_id, shopify_fulfillment_status=f"failed: {e}")
         result = "failed"
 
-    return RedirectResponse(url=f"/admin/history?fulfilled={result}", status_code=303)
+    return RedirectResponse(url=f"{redirect_to}?fulfilled={result}", status_code=303)
 
 
 @app.get("/admin/errors", response_class=HTMLResponse)
