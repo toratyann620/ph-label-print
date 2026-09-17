@@ -135,11 +135,11 @@ class ShopifyClient:
             if r_put.status_code != 200:
                 raise Exception(f"Failed to tag order {order_id}: {r_put.status_code} - {r_put.text}")
 
-    async def fulfill_order(self, order_id: int, tracking_number: str, tracking_company: str) -> None:
+    async def fulfill_order(self, order_id: int, tracking_number: str, tracking_company: str, notify_customer: bool = True) -> None:
         """
         注文をShopify標準の「発送済み」（フルフィルメント）にする。
-        notify_customer=Trueにより、Shopifyから発送通知メールが自動送信される
-        （ショップ側で発送通知メール自体を無効化していない限り）。
+        notify_customer=Trueの場合、Shopifyから発送通知メールが自動送信される
+        （ショップ側で発送通知メール自体を無効化していない限り）。Falseの場合は送信されない。
         現行のREST API（2022-07以降）ではフルフィルメントの直接作成は廃止されており、
         fulfillment_orders経由での作成が必須のため、その方式を使う。
         """
@@ -161,7 +161,7 @@ class ShopifyClient:
                 "fulfillment": {
                     "line_items_by_fulfillment_order": [{"fulfillment_order_id": fo["id"]} for fo in open_fos],
                     "tracking_info": {"number": tracking_number, "company": tracking_company},
-                    "notify_customer": True,
+                    "notify_customer": notify_customer,
                 }
             }
             fulfill_url = f"{base}/admin/api/{self.api_version}/fulfillments.json"

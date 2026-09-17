@@ -1,8 +1,24 @@
 {% extends "admin/base.html" %}
 {% block title %}発行履歴{% endblock %}
+{% block extra_head %}
+<style>
+  .fulfill-form { display: flex; flex-direction: column; gap: 4px; min-width: 110px; }
+  .fulfill-form label { font-size: 11px; color: #555; display: flex; align-items: center; gap: 4px; }
+  .fulfill-form label input { width: auto; }
+  .fulfill-btn {
+    padding: 5px 10px; background: #1a1a2e; color: #fff; border: none; border-radius: 6px;
+    font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  .fulfill-btn:hover { background: #2e2e48; }
+  .fulfill-error { font-size: 10px; color: #c0321a; margin-top: 2px; word-break: break-all; }
+</style>
+{% endblock %}
 {% block content %}
   <h1>発行履歴</h1>
   <p class="subtitle">ヤマトB2クラウドAPI・佐川急便スマートAPIで送り状発行が完了した案件の一覧です（Ship&coの「発行完了」に相当）。</p>
+
+  {% if fulfilled == 'success' %}<div class="toast">Shopify側を発送済みにしました。</div>{% endif %}
+  {% if fulfilled == 'failed' %}<div class="toast" style="background:#fdeceb;border-color:#fca5a5;color:#c0321a;">発送済み処理に失敗しました。該当行のエラー内容をご確認ください。</div>{% endif %}
 
   <div class="card">
     {% if rows %}
@@ -19,6 +35,7 @@
           <th>発行番号</th>
           <th>PDF</th>
           <th>Shopifyタグ付与</th>
+          <th>発送済み(Shopify)</th>
           <th>Ship&co照合</th>
         </tr>
       </thead>
@@ -50,6 +67,23 @@
             {% elif row.tag_status %}
             <span class="badge-status badge-error" title="{{ row.tag_status }}">失敗</span>
             {% else %}-{% endif %}
+          </td>
+          <td>
+            {% if row.shopify_fulfillment_status and row.shopify_fulfillment_status.startswith('ok') %}
+            <span class="badge-status badge-done">発送済み</span>
+            <div style="font-size:10px;color:#999;margin-top:2px;">{{ row.shopify_fulfillment_status }}</div>
+            {% elif row.shopify_fulfillment_status == 'skipped_backlog' %}
+            <span class="badge-status" style="background:#eee;color:#777;">対象外（導入前）</span>
+            {% else %}
+            <form class="fulfill-form" method="post" action="/admin/fulfill">
+              <input type="hidden" name="record_id" value="{{ row.id }}">
+              <label><input type="checkbox" name="notify_customer" checked>発送通知メールを送る</label>
+              <button type="submit" class="fulfill-btn">発送済みにする</button>
+              {% if row.shopify_fulfillment_status %}
+              <div class="fulfill-error" title="{{ row.shopify_fulfillment_status }}">{{ row.shopify_fulfillment_status }}</div>
+              {% endif %}
+            </form>
+            {% endif %}
           </td>
           <td>
             {% if row.compare_status == 'match' %}

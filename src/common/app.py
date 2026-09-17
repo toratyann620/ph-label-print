@@ -206,14 +206,54 @@ async def admin_pdf(request: Request, record_id: int):
 
 
 @app.get("/admin/history", response_class=HTMLResponse)
-async def admin_history(request: Request):
+async def admin_history(request: Request, fulfilled: str = ""):
     if (redirect := _require_admin(request)) is not None:
         return redirect
     rows = db.list_shipments(statuses=["done"])
     return templates.TemplateResponse("admin/history.html", {
         "request": request, "active": "history", "counts": _nav_counts(),
-        "rows": rows,
+        "rows": rows, "fulfilled": fulfilled,
     })
+
+
+# 配送会社ごとの、Shopifyがトラッキングリンク自動生成のために認識する表記
+TRACKING_COMPANY_NAMES = {
+    "yamato": "Yamato Transport",
+    "sagawa": "Sagawa Express",
+}
+
+
+@app.post("/admin/fulfill", include_in_schema=False)
+async def admin_fulfill(request: Request, record_id: int = Form(...), notify_customer: str = Form("")):
+    """
+    発行履歴の注文1件を、Shopify上で「発送済み」（フルフィルメント）にする。
+    notify_customerがチェックされていれば、Shopifyから発送通知メールが送信される。
+    """
+    if (redirect := _require_admin(request)) is not None:
+        return redirect
+
+    record = db.get_shipment(record_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="対象の送り状が見つかりません")
+
+    notify = notify_customer == "on"
+    tracking_company = TRACKING_COMPANY_NAMES.get(record.get("carrier") or "yamato", "")
+
+    try:
+        store_name, shopify, order, store_errors = await find_order(record["order_name"])
+        if not order:
+            raise Exception(f"Shopify注文が見つかりません: {store_errors}")
+        await shopify.fulfill_order(
+            order["id"], record.get("yamato_tracking_no") or "", tracking_company, notify_customer=notify,
+        )
+        status_text = "ok（メール送信あり）" if notify else "ok（メール送信なし）"
+        db.update_shipment_record(record_id, shopify_fulfillment_status=status_text)
+        result = "success"
+    except Exception as e:
+        db.update_shipment_record(record_id, shopify_fulfillment_status=f"failed: {e}")
+        result = "failed"
+
+    return RedirectResponse(url=f"/admin/history?fulfilled={result}", status_code=303)
 
 
 @app.get("/admin/errors", response_class=HTMLResponse)
