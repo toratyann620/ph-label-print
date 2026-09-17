@@ -134,6 +134,9 @@ def init_db():
                 detail_json          TEXT
             )
         """)
+        existing_columns = {row["name"] for row in conn.execute("PRAGMA table_info(shipments)")}
+        is_new_fulfillment_column = "shopify_fulfillment_status" not in existing_columns
+
         _ensure_columns(conn, "shipments", {
             "tag_status": "TEXT", "print_status": "TEXT",
             # Ship&co実績CSVとの照合結果（scripts/compare_shipco.py が記録する）
@@ -143,7 +146,18 @@ def init_db():
             # どちらの配送業者で発行したか（"yamato" / "sagawa"）。
             # yamato_issue_no / yamato_tracking_no は佐川発行時も流用する（佐川は発行受付IDを使わない即時発行のため issue_no は空欄、tracking_noに問合番号を格納）
             "carrier": "TEXT",
+            # scripts/daily_fulfillment.py が記録する、Shopify側フルフィルメント（発送済み化）の結果。
+            # 未設定（NULL）のdone注文がバッチ処理の対象になる。
+            "shopify_fulfillment_status": "TEXT",
         })
+
+        if is_new_fulfillment_column:
+            # この列を初めて追加したタイミングで既に「発行完了」になっている注文は、
+            # 導入前からのテスト注文等が含まれるため、バッチ処理の対象から外す
+            # （実際の顧客への誤った発送通知メール送信を防ぐため）。
+            conn.execute(
+                "UPDATE shipments SET shopify_fulfillment_status='skipped_backlog' WHERE status='done'"
+            )
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS store_settings (

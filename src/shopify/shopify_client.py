@@ -135,6 +135,40 @@ class ShopifyClient:
             if r_put.status_code != 200:
                 raise Exception(f"Failed to tag order {order_id}: {r_put.status_code} - {r_put.text}")
 
+    async def fulfill_order(self, order_id: int, tracking_number: str, tracking_company: str) -> None:
+        """
+        注文をShopify標準の「発送済み」（フルフィルメント）にする。
+        notify_customer=Trueにより、Shopifyから発送通知メールが自動送信される
+        （ショップ側で発送通知メール自体を無効化していない限り）。
+        現行のREST API（2022-07以降）ではフルフィルメントの直接作成は廃止されており、
+        fulfillment_orders経由での作成が必須のため、その方式を使う。
+        """
+        shop_domain = self.shop_url
+        base = shop_domain if shop_domain.startswith("http") else f"https://{shop_domain}"
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            fo_url = f"{base}/admin/api/{self.api_version}/orders/{order_id}/fulfillment_orders.json"
+            r1 = await client.get(fo_url, headers=self._headers())
+            if r1.status_code != 200:
+                raise Exception(f"フルフィルメント対象の取得に失敗しました: {r1.status_code} - {r1.text}")
+
+            fulfillment_orders = r1.json().get("fulfillment_orders", [])
+            open_fos = [fo for fo in fulfillment_orders if fo.get("status") in ("open", "in_progress", "scheduled")]
+            if not open_fos:
+                raise Exception("フルフィルメント対象の注文明細が見つかりませんでした（既に発送済み、またはキャンセル済みの可能性）")
+
+            payload = {
+                "fulfillment": {
+                    "line_items_by_fulfillment_order": [{"fulfillment_order_id": fo["id"]} for fo in open_fos],
+                    "tracking_info": {"number": tracking_number, "company": tracking_company},
+                    "notify_customer": True,
+                }
+            }
+            fulfill_url = f"{base}/admin/api/{self.api_version}/fulfillments.json"
+            r2 = await client.post(fulfill_url, headers=self._headers(), json=payload)
+            if r2.status_code not in (200, 201):
+                raise Exception(f"フルフィルメント作成に失敗しました: {r2.status_code} - {r2.text}")
+
     async def get_order_by_name(self, name: str) -> dict | None:
         """
         注文名（Shopifyの注文番号表記, 例: "#P33986"）から該当注文を1件取得する。
