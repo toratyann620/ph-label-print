@@ -254,9 +254,9 @@ class ShopifyClient:
         if line_items:
             raw_item_name = line_items[0].get("title", line_items[0].get("name", "商品"))
             if len(line_items) > 1:
-                # 2品以上ある場合は「外」を付与する分、その幅（全角1文字=2単位）を差し引く
-                budget = YAMATO_ITEM_NAME_MAX_UNITS - display_width("外")
-                item_name = balance_lines(raw_item_name, budget, width_fn=display_width)[0] + "外"
+                # 2品以上ある場合は「他」を付与する分、その幅（全角1文字=2単位）を差し引く
+                budget = YAMATO_ITEM_NAME_MAX_UNITS - display_width("他")
+                item_name = balance_lines(raw_item_name, budget, width_fn=display_width)[0] + "他"
             else:
                 item_name = balance_lines(raw_item_name, YAMATO_ITEM_NAME_MAX_UNITS, width_fn=display_width)[0]
         else:
@@ -314,7 +314,7 @@ class ShopifyClient:
             item_name = line_items[0].get("title", line_items[0].get("name", "商品"))
             # 佐川の記事欄(kiji1、品名用に流用)は32文字まで印字可能
             if len(line_items) > 1:
-                item_name = f"{item_name[:SAGAWA_KIJI_MAX_CHARS - 1]}外"
+                item_name = f"{item_name[:SAGAWA_KIJI_MAX_CHARS - 1]}他"
             else:
                 item_name = item_name[:SAGAWA_KIJI_MAX_CHARS]
         else:
