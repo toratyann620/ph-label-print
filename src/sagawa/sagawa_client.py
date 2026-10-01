@@ -81,7 +81,10 @@ def format_sagawa_error(result: dict) -> str:
     return str(result)
 
 
-async def issue_sagawa_pdf(client, store_name: str, order_no: str, sagawa_req: dict, output_dir: str, shipping_date: str = "") -> tuple[bool, dict]:
+async def issue_sagawa_pdf(
+    client, store_name: str, order_no: str, sagawa_req: dict, output_dir: str,
+    shipping_date: str = "", delivery_date: str = "", delivery_time_slot: str = "",
+) -> tuple[bool, dict]:
     """佐川急便 即時発行API（sokuji）で送り状を発行し、PDFを出力フォルダへ保存する"""
     print_data_detail = {
         "haisoKosu": "1",
@@ -113,9 +116,9 @@ async def issue_sagawa_pdf(client, store_name: str, order_no: str, sagawa_req: d
         "binsyuCode": "000",  # 陸便
         "daibikiFlg": "1" if sagawa_req["is_cod"] else "0",
         "daibikiType": "",
-        # 配達指定日は空欄にし、佐川側の標準（最短）でお届けする
-        "shiteiDate": "",
-        "shiteiTimeCode": "",
+        # 配達指定日・時間帯（スマホ画面で指定が無ければ空欄のまま＝佐川側の標準/最短でお届け）
+        "shiteiDate": delivery_date,
+        "shiteiTimeCode": delivery_time_slot,
         "daibikiKingaku": sagawa_req["cod_amount"] if sagawa_req["is_cod"] else "",
         "daibikiTax": sagawa_req["cod_tax"] if sagawa_req["is_cod"] else "",
         "weight1": "", "weight2": "",

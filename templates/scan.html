@@ -80,10 +80,11 @@
   .adjust-list { font-size: 12px; color: #666; line-height: 1.7; padding-left: 18px; margin: 0; }
   .card .form-field { display: flex; flex-direction: column; gap: 4px; }
   .card .form-field label { font-size: 11px; color: #999; }
-  .card .form-field input {
+  .card .form-field input, .card .form-field select {
     font-size: 15px; padding: 9px 10px; border: 1px solid #ddd; border-radius: 8px; color: #1a1a2e;
+    background: #fff; font-family: inherit;
   }
-  .card .form-field input:focus { outline: none; border-color: #e8401c; }
+  .card .form-field input:focus, .card .form-field select:focus { outline: none; border-color: #e8401c; }
   .fill-hint {
     background: #f5f6f8; border-radius: 8px; padding: 8px 10px; font-size: 12px; color: #555;
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -158,6 +159,8 @@
   let stream = null;
   let scanning = false;
   let selectedShipTiming = 'today';   // 'today' | 'next_business_day'（発行ボタンを押した時点の選択を使う）
+  let selectedDeliveryDate = '';      // YYYYMMDD（任意・到着日指定）
+  let selectedDeliveryTimeSlot = '';  // 配送会社ごとの時間帯コード（任意）
 
   function showOnly(el) {
     [viewIdle, viewCamera, viewLoading, viewResult].forEach(v => v.style.display = 'none');
@@ -253,6 +256,63 @@
     });
   }
 
+  // 到着日・時間帯指定（任意）。日付は最短3日先まで、時間帯は配送会社ごとの
+  // 正式なコード表に従う（自由入力はしない）。
+  const DELIVERY_TIME_SLOTS = {
+    yamato: [
+      { value: '', label: '時間帯指定なし' },
+      { value: '0812', label: '午前中' },
+      { value: '1416', label: '14:00〜16:00' },
+      { value: '1618', label: '16:00〜18:00' },
+      { value: '1820', label: '18:00〜20:00' },
+      { value: '1921', label: '19:00〜21:00' },
+    ],
+    sagawa: [
+      { value: '', label: '時間帯指定なし' },
+      { value: '01', label: '午前中' },
+      { value: '12', label: '12:00〜14:00' },
+      { value: '14', label: '14:00〜16:00' },
+      { value: '16', label: '16:00〜18:00' },
+      { value: '18', label: '18:00〜20:00' },
+      { value: '19', label: '19:00〜21:00' },
+    ],
+  };
+
+  function deliveryOptionsHtml(carrier) {
+    const slots = DELIVERY_TIME_SLOTS[carrier] || DELIVERY_TIME_SLOTS.yamato;
+    const today = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const toDateStr = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const min = toDateStr(today);
+    const max = toDateStr(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 3));
+    const optionsHtml = slots.map(s => `<option value="${s.value}">${escapeHtml(s.label)}</option>`).join('');
+    return `
+      <div class="form-field">
+        <label>到着日指定（任意・最短3日先まで）</label>
+        <input type="date" id="f-delivery-date" min="${min}" max="${max}">
+      </div>
+      <div class="form-field">
+        <label>到着時間帯指定（任意）</label>
+        <select id="f-delivery-time">${optionsHtml}</select>
+      </div>
+    `;
+  }
+
+  function wireDeliveryOptions() {
+    // 画面を再描画すると入力欄のDOMごと作り直されるため、選択値はグローバル変数で
+    // 保持する（住所修正のやり直し等で再描画された後も選択内容を失わないため）
+    selectedDeliveryDate = '';
+    selectedDeliveryTimeSlot = '';
+    const dateEl = document.getElementById('f-delivery-date');
+    const timeEl = document.getElementById('f-delivery-time');
+    if (dateEl) dateEl.addEventListener('change', () => {
+      selectedDeliveryDate = dateEl.value ? dateEl.value.replace(/-/g, '') : '';
+    });
+    if (timeEl) timeEl.addEventListener('change', () => {
+      selectedDeliveryTimeSlot = timeEl.value;
+    });
+  }
+
   // 住所編集フォーム（郵便番号食い違い時・文字数オーバー時の修正、両方で共用）
   function addressFormFieldsHtml(initial) {
     const lines = (initial.lines || []).concat(['', '', '']).slice(0, 3);
@@ -318,6 +378,7 @@
           lines: [data.customer_address || '', '', ''],
         })}
         ${shipTimingToggleHtml()}
+        ${deliveryOptionsHtml(data.carrier)}
         <div class="field"><div class="label">送信先プリンター</div><div class="value" style="font-size:13px;">${escapeHtml(data.printer_name || '-')}</div></div>
         <button class="btn" id="btn-issue">送り状発行</button>
         <button class="btn secondary" id="btn-rescan">もう一度スキャン</button>
@@ -327,6 +388,7 @@
         document.getElementById('f-line1').value = zipAddr;
       });
       wireShipTimingToggle();
+      wireDeliveryOptions();
       document.getElementById('btn-issue').addEventListener('click', () => issueShipment(data.order_name, collectAddressFormValues()));
       document.getElementById('btn-rescan').addEventListener('click', startCamera);
       showOnly(viewResult);
@@ -340,11 +402,13 @@
       <div class="field"><div class="label">電話番号</div><div class="value">${phoneLinkHtml(data.customer_phone)}</div></div>
       <div class="field"><div class="label">ストア</div><div class="value">${escapeHtml(data.store || '-')}</div></div>
       ${shipTimingToggleHtml()}
+      ${deliveryOptionsHtml(data.carrier)}
       <div class="field"><div class="label">送信先プリンター</div><div class="value" style="font-size:13px;">${escapeHtml(data.printer_name || '-')}</div></div>
       <button class="btn" id="btn-issue">送り状発行</button>
       <button class="btn secondary" id="btn-rescan">もう一度スキャン</button>
     `;
     wireShipTimingToggle();
+    wireDeliveryOptions();
     document.getElementById('btn-issue').addEventListener('click', () => issueShipment(data.order_name));
     document.getElementById('btn-rescan').addEventListener('click', startCamera);
     showOnly(viewResult);
@@ -354,7 +418,12 @@
     showOnly(viewLoading);
     document.getElementById('loading-text').textContent = '送り状を発行中...（数秒かかります）';
     try {
-      const payload = { order_name: orderName, ship_timing: selectedShipTiming };
+      const payload = {
+        order_name: orderName,
+        ship_timing: selectedShipTiming,
+        delivery_date: selectedDeliveryDate,
+        delivery_time_slot: selectedDeliveryTimeSlot,
+      };
       if (override) payload.override = override;
       const res = await fetch('/api/scan/issue', {
         method: 'POST',

@@ -430,6 +430,11 @@ async def api_scan_lookup(request: Request, body: ScanOrderRequest):
     store_settings = db.get_store_settings(store_name)
     printer_name = (store_settings or {}).get("printer_name") or DEFAULT_PRINTER_NAME
 
+    # 到着日時指定の選択肢を、実際に発行時に使われる配送業者（ヤマト/佐川）に合わせて
+    # スマホ画面に出し分けるための判定（処理状況一覧と同じ分類ロジック）
+    shipping_method = db.classify_shipping_method(order.get("tags", ""))
+    carrier = "sagawa" if shipping_method == "佐川" else "yamato"
+
     return {
         "found": True,
         "order_name": order_name,
@@ -441,6 +446,7 @@ async def api_scan_lookup(request: Request, body: ScanOrderRequest):
         "already_issued": bool(existing),
         "tracking_number": existing["yamato_tracking_no"] if existing else None,
         "printer_name": printer_name,
+        "carrier": carrier,
         "zip_mismatch": zip_mismatch,
         "zip_suggested_address": zip_suggested_address,
     }
@@ -461,6 +467,8 @@ async def api_scan_issue(request: Request, body: ScanOrderRequest):
         body.order_name.strip(),
         recipient_override=override,
         ship_timing=body.ship_timing,
+        delivery_date=body.delivery_date,
+        delivery_time_slot=body.delivery_time_slot,
     )
 
     response = {

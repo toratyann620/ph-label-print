@@ -348,15 +348,22 @@ def _print_pdf_windows(pdf_path: str, printer_name: str | None) -> tuple[bool, s
         return False, f"Windows印刷に失敗しました（送信先: {target_label}）。SumatraPDFの導入を推奨します: {e}"
 
 
-async def issue_yamato_pdf(client: httpx.AsyncClient, store_name: str, order_no: str, yamato_req, order_name: str = "", shipment_date: str | None = None) -> tuple[bool, dict]:
+async def issue_yamato_pdf(
+    client: httpx.AsyncClient, store_name: str, order_no: str, yamato_req, order_name: str = "",
+    shipment_date: str | None = None, delivery_date_override: str = "", delivery_time_zone: str = "",
+) -> tuple[bool, dict]:
     """ヤマトB2クラウドAPIで送り状を発行し、PDFを出力フォルダへ保存する"""
     ship_date = shipment_date or datetime.now().strftime("%Y%m%d")
-    # delivery_dateを空文字にすると「日付欄を印字しない」指定になってしまう
-    # （公式仕様書 No.6: ※入力なしの場合、印字されません）。最短日を指定・印字させる
-    # には、YYYYMMDD形式の代わりに全角文字列 "最短日" を明示的に送る必要がある。
-    # これにより日付印字フラグ(is_printing_date)の既定値も自動的に「1:印字する」
-    # になり、出荷予定日・お届け予定日の両方が正しく印字される。
-    delivery_date = "最短日"
+    if delivery_date_override:
+        # スマホ画面で到着日を指定した場合、YYYYMMDD形式でそのまま指定する
+        delivery_date = delivery_date_override
+    else:
+        # delivery_dateを空文字にすると「日付欄を印字しない」指定になってしまう
+        # （公式仕様書 No.6: ※入力なしの場合、印字されません）。最短日を指定・印字させる
+        # には、YYYYMMDD形式の代わりに全角文字列 "最短日" を明示的に送る必要がある。
+        # これにより日付印字フラグ(is_printing_date)の既定値も自動的に「1:印字する」
+        # になり、出荷予定日・お届け予定日の両方が正しく印字される。
+        delivery_date = "最短日"
 
     shipment_data = {
         "shipment_number":              f"SHOP-{order_no}",
@@ -379,7 +386,7 @@ async def issue_yamato_pdf(client: httpx.AsyncClient, store_name: str, order_no:
         "closure_key":                  "",
         "input_system_type":            "api",
         "package_qty":                  "1",
-        "delivery_time_zone":           "",
+        "delivery_time_zone":           delivery_time_zone,
         "is_using_shipment_email":      "0",
         "is_using_delivery_email":      "0",
         "shipper_telephone_display":    yamato_req.sender_phone,
@@ -543,6 +550,8 @@ async def issue_for_order_name(
     skip_print: bool = False,
     recipient_override: dict | None = None,
     ship_timing: str = "today",
+    delivery_date: str = "",
+    delivery_time_slot: str = "",
 ) -> dict:
     """
     注文番号（Shopify注文名, 例: "#P33986"）1件を、Shopify注文検索〜ヤマト送り状発行〜
@@ -552,6 +561,8 @@ async def issue_for_order_name(
     recipient_override が指定された場合、Shopify由来の宛先氏名・郵便番号・住所・電話番号を
     この内容（スマホ画面で確認・修正済み）で上書きし、文字数チェックは行わずそのまま発行する。
     ship_timing は "today"（本日出荷）または "next_business_day"（翌営業日出荷）。
+    delivery_date（YYYYMMDD）・delivery_time_slot（配送会社ごとのコード）は
+    スマホ画面で到着日・時間帯を指定した場合のみ渡される（未指定なら各社の標準/最短で発送）。
     出荷締め後や悪天候時などにスマホ画面で手動選択する（時間による自動判定は行わない）。
     """
     db.init_db()
@@ -636,7 +647,10 @@ async def issue_for_order_name(
 
         output_dir = _resolve_path(db.get_app_settings()["output_folder"])
         async with httpx.AsyncClient(timeout=60.0) as client:
-            success, result = await issue_sagawa_pdf(client, store_name, order_no, sagawa_req, output_dir, shipping_date=shipment_date)
+            success, result = await issue_sagawa_pdf(
+                client, store_name, order_no, sagawa_req, output_dir,
+                shipping_date=shipment_date, delivery_date=delivery_date, delivery_time_slot=delivery_time_slot,
+            )
 
         if not success:
             db.update_shipment_record(record_id, status="error_sagawa", error_message=format_sagawa_error(result))
@@ -689,7 +703,10 @@ async def issue_for_order_name(
         )
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            success, result = await issue_yamato_pdf(client, store_name, order_no, yamato_req, order_name, shipment_date)
+            success, result = await issue_yamato_pdf(
+                client, store_name, order_no, yamato_req, order_name, shipment_date,
+                delivery_date_override=delivery_date, delivery_time_zone=delivery_time_slot,
+            )
 
         if not success:
             db.update_shipment_record(record_id, status="error_yamato", error_message=format_yamato_error(result))

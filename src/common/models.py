@@ -63,3 +63,5 @@ class ScanOrderRequest(BaseModel):
     order_name: str
     override: Optional[RecipientOverride] = None
     ship_timing: str = "today"   # "today"（本日出荷） | "next_business_day"（翌営業日出荷）
+    delivery_date: str = ""        # 到着日指定（YYYYMMDD）。未指定なら各社の標準/最短
+    delivery_time_slot: str = ""   # 到着時間帯指定（配送会社ごとのコード）。未指定なら時間指定なし
