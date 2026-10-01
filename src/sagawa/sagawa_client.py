@@ -84,10 +84,11 @@ def format_sagawa_error(result: dict) -> str:
 async def issue_sagawa_pdf(
     client, store_name: str, order_no: str, sagawa_req: dict, output_dir: str,
     shipping_date: str = "", delivery_date: str = "", delivery_time_slot: str = "",
+    package_count: int = 1,
 ) -> tuple[bool, dict]:
     """佐川急便 即時発行API（sokuji）で送り状を発行し、PDFを出力フォルダへ保存する"""
     print_data_detail = {
-        "haisoKosu": "1",
+        "haisoKosu": str(package_count),
         "userManageNumber": sagawa_req["user_manage_number"],
         "kokyakuCode": KOKYAKU_CODE,
         "otodokeAdd1": sagawa_req["recipient_address1"],

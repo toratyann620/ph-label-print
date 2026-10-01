@@ -351,6 +351,7 @@ def _print_pdf_windows(pdf_path: str, printer_name: str | None) -> tuple[bool, s
 async def issue_yamato_pdf(
     client: httpx.AsyncClient, store_name: str, order_no: str, yamato_req, order_name: str = "",
     shipment_date: str | None = None, delivery_date_override: str = "", delivery_time_zone: str = "",
+    package_count: int = 1,
 ) -> tuple[bool, dict]:
     """ヤマトB2クラウドAPIで送り状を発行し、PDFを出力フォルダへ保存する"""
     ship_date = shipment_date or datetime.now().strftime("%Y%m%d")
@@ -385,7 +386,7 @@ async def issue_yamato_pdf(
         "payment_receipt_no3":          "",
         "closure_key":                  "",
         "input_system_type":            "api",
-        "package_qty":                  "1",
+        "package_qty":                  str(package_count),
         "delivery_time_zone":           delivery_time_zone,
         "is_using_shipment_email":      "0",
         "is_using_delivery_email":      "0",
@@ -552,6 +553,7 @@ async def issue_for_order_name(
     ship_timing: str = "today",
     delivery_date: str = "",
     delivery_time_slot: str = "",
+    package_count: int = 1,
 ) -> dict:
     """
     注文番号（Shopify注文名, 例: "#P33986"）1件を、Shopify注文検索〜ヤマト送り状発行〜
@@ -564,6 +566,8 @@ async def issue_for_order_name(
     delivery_date（YYYYMMDD）・delivery_time_slot（配送会社ごとのコード）は
     スマホ画面で到着日・時間帯を指定した場合のみ渡される（未指定なら各社の標準/最短で発送）。
     出荷締め後や悪天候時などにスマホ画面で手動選択する（時間による自動判定は行わない）。
+    package_count は個口数（1〜3）。ヤマトの発払い・コレクト、佐川の通常発送（代引き以外）の
+    みスマホ画面で選択可能（それ以外は常に1固定でフロント側が制限する）。
     """
     db.init_db()
     shipment_date = _compute_shipment_date(ship_timing)
@@ -650,6 +654,7 @@ async def issue_for_order_name(
             success, result = await issue_sagawa_pdf(
                 client, store_name, order_no, sagawa_req, output_dir,
                 shipping_date=shipment_date, delivery_date=delivery_date, delivery_time_slot=delivery_time_slot,
+                package_count=package_count,
             )
 
         if not success:
@@ -706,6 +711,7 @@ async def issue_for_order_name(
             success, result = await issue_yamato_pdf(
                 client, store_name, order_no, yamato_req, order_name, shipment_date,
                 delivery_date_override=delivery_date, delivery_time_zone=delivery_time_slot,
+                package_count=package_count,
             )
 
         if not success:

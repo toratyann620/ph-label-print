@@ -102,6 +102,8 @@
     color: #555; font-size: 13px; font-weight: 600; cursor: pointer; text-align: center;
   }
   .ship-timing .opt.selected { border-color: #e8401c; background: #fdeceb; color: #c0321a; }
+  .ship-timing .opt.disabled { cursor: not-allowed; color: #ccc; background: #f7f7f7; }
+  .ship-timing .hint { font-size: 10.5px; color: #999; line-height: 1.5; }
 
   .spinner {
     width: 34px; height: 34px; border: 3px solid rgba(255,255,255,.25); border-top-color: #e8401c;
@@ -161,6 +163,7 @@
   let selectedShipTiming = 'today';   // 'today' | 'next_business_day'（発行ボタンを押した時点の選択を使う）
   let selectedDeliveryDate = '';      // YYYYMMDD（任意・到着日指定）
   let selectedDeliveryTimeSlot = '';  // 配送会社ごとの時間帯コード（任意）
+  let selectedPackageCount = 1;       // 個口数（1〜3、既定1）
 
   function showOnly(el) {
     [viewIdle, viewCamera, viewLoading, viewResult].forEach(v => v.style.display = 'none');
@@ -313,6 +316,38 @@
     });
   }
 
+  // 個口数（1〜3）の選択UI。ヤマトの発払い・コレクト、佐川の通常発送（代引き以外）のみ
+  // 2個・3個を選べる（ネコポス・代引きは個口指定不可のため常に1個固定でグレー表示にする）。
+  function packageCountToggleHtml(supportsMultiPiece) {
+    const opts = [1, 2, 3].map(n => {
+      const disabled = !supportsMultiPiece && n !== 1;
+      const selected = n === 1 ? 'selected' : '';
+      return `<div class="opt ${selected} ${disabled ? 'disabled' : ''}" id="opt-package-${n}" data-value="${n}">${n}個</div>`;
+    }).join('');
+    const hint = supportsMultiPiece ? '' : '<div class="hint">ネコポス・代金引換（代引き）は個口数の指定に対応していません。</div>';
+    return `
+      <div class="ship-timing">
+        <div class="label">個口数</div>
+        <div class="options">${opts}</div>
+        ${hint}
+      </div>
+    `;
+  }
+
+  function wirePackageCountToggle(supportsMultiPiece) {
+    selectedPackageCount = 1;
+    const opts = [1, 2, 3].map(n => document.getElementById(`opt-package-${n}`)).filter(Boolean);
+    if (!opts.length) return;
+    opts.forEach(opt => {
+      const n = Number(opt.dataset.value);
+      if (!supportsMultiPiece && n !== 1) return;  // disabled分はクリック無効
+      opt.addEventListener('click', () => {
+        selectedPackageCount = n;
+        opts.forEach(o => o.classList.toggle('selected', o === opt));
+      });
+    });
+  }
+
   // 住所編集フォーム（郵便番号食い違い時・文字数オーバー時の修正、両方で共用）
   function addressFormFieldsHtml(initial) {
     const lines = (initial.lines || []).concat(['', '', '']).slice(0, 3);
@@ -379,6 +414,7 @@
         })}
         ${shipTimingToggleHtml()}
         ${deliveryOptionsHtml(data.carrier)}
+        ${packageCountToggleHtml(data.supports_multi_piece)}
         <div class="field"><div class="label">送信先プリンター</div><div class="value" style="font-size:13px;">${escapeHtml(data.printer_name || '-')}</div></div>
         <button class="btn" id="btn-issue">送り状発行</button>
         <button class="btn secondary" id="btn-rescan">もう一度スキャン</button>
@@ -389,6 +425,7 @@
       });
       wireShipTimingToggle();
       wireDeliveryOptions();
+      wirePackageCountToggle(data.supports_multi_piece);
       document.getElementById('btn-issue').addEventListener('click', () => issueShipment(data.order_name, collectAddressFormValues()));
       document.getElementById('btn-rescan').addEventListener('click', startCamera);
       showOnly(viewResult);
@@ -403,12 +440,14 @@
       <div class="field"><div class="label">ストア</div><div class="value">${escapeHtml(data.store || '-')}</div></div>
       ${shipTimingToggleHtml()}
       ${deliveryOptionsHtml(data.carrier)}
+      ${packageCountToggleHtml(data.supports_multi_piece)}
       <div class="field"><div class="label">送信先プリンター</div><div class="value" style="font-size:13px;">${escapeHtml(data.printer_name || '-')}</div></div>
       <button class="btn" id="btn-issue">送り状発行</button>
       <button class="btn secondary" id="btn-rescan">もう一度スキャン</button>
     `;
     wireShipTimingToggle();
     wireDeliveryOptions();
+    wirePackageCountToggle(data.supports_multi_piece);
     document.getElementById('btn-issue').addEventListener('click', () => issueShipment(data.order_name));
     document.getElementById('btn-rescan').addEventListener('click', startCamera);
     showOnly(viewResult);
@@ -423,6 +462,7 @@
         ship_timing: selectedShipTiming,
         delivery_date: selectedDeliveryDate,
         delivery_time_slot: selectedDeliveryTimeSlot,
+        package_count: selectedPackageCount,
       };
       if (override) payload.override = override;
       const res = await fetch('/api/scan/issue', {

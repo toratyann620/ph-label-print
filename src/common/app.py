@@ -435,6 +435,14 @@ async def api_scan_lookup(request: Request, body: ScanOrderRequest):
     shipping_method = db.classify_shipping_method(order.get("tags", ""))
     carrier = "sagawa" if shipping_method == "佐川" else "yamato"
 
+    # 個口数（2〜3）を選択できるのは、ヤマトの発払い("0")・コレクト("2")、
+    # 佐川の通常発送（代引きでない場合）のみ。ヤマトのネコポス・佐川の代引きは個口指定不可。
+    yamato_service_type = db.classify_yamato_service_type(order.get("tags", ""))
+    if carrier == "sagawa":
+        supports_multi_piece = yamato_service_type != "2"
+    else:
+        supports_multi_piece = yamato_service_type in ("0", "2")
+
     return {
         "found": True,
         "order_name": order_name,
@@ -447,6 +455,7 @@ async def api_scan_lookup(request: Request, body: ScanOrderRequest):
         "tracking_number": existing["yamato_tracking_no"] if existing else None,
         "printer_name": printer_name,
         "carrier": carrier,
+        "supports_multi_piece": supports_multi_piece,
         "zip_mismatch": zip_mismatch,
         "zip_suggested_address": zip_suggested_address,
     }
@@ -469,6 +478,7 @@ async def api_scan_issue(request: Request, body: ScanOrderRequest):
         ship_timing=body.ship_timing,
         delivery_date=body.delivery_date,
         delivery_time_slot=body.delivery_time_slot,
+        package_count=body.package_count,
     )
 
     response = {
