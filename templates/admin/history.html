@@ -2,12 +2,12 @@
 {% block title %}発行履歴{% endblock %}
 {% block extra_head %}
 <style>
-  .fulfill-form { display: flex; flex-direction: column; gap: 4px; min-width: 110px; }
+  .fulfill-form { display: flex; flex-direction: column; gap: 4px; width: 150px; box-sizing: border-box; }
   .fulfill-form label { font-size: 11px; color: #555; display: flex; align-items: center; gap: 4px; }
-  .fulfill-form label input { width: auto; }
+  .fulfill-form label input { width: auto; flex-shrink: 0; }
   .fulfill-btn {
-    padding: 5px 10px; background: #1a1a2e; color: #fff; border: none; border-radius: 6px;
-    font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;
+    width: 100%; box-sizing: border-box; padding: 6px 10px; background: #1a1a2e; color: #fff;
+    border: none; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;
   }
   .fulfill-btn:hover { background: #2e2e48; }
   .fulfill-error { font-size: 10px; color: #c0321a; margin-top: 2px; word-break: break-all; }

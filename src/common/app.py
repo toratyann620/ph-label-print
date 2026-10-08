@@ -227,6 +227,17 @@ TRACKING_COMPANY_NAMES = {
     "sagawa": "Sagawa Express",
 }
 
+# Shopifyはtracking_companyの名称だけでは追跡リンクを正しく推測できない場合がある
+# （ヤマトの伝票番号でFedExへのリンクが生成された事例あり）。追跡ページURLを
+# 直接組み立てて渡すことで、常に正しいキャリアの追跡ページにリンクさせる。
+def _build_tracking_url(carrier: str, tracking_number: str) -> str:
+    digits = (tracking_number or "").replace("-", "")
+    if not digits:
+        return ""
+    if carrier == "sagawa":
+        return f"https://k2k.sagawa-exp.co.jp/p/sagawa/web/okurijosearch.do?okurijoNo={digits}"
+    return f"http://toi.kuronekoyamato.co.jp/cgi-bin/tneko?number00={digits}"
+
 
 @app.post("/admin/fulfill", include_in_schema=False)
 async def admin_fulfill(
@@ -248,17 +259,22 @@ async def admin_fulfill(
 
     record = db.get_shipment(record_id)
     if not record:
-        raise HTTPException(status_code=404, detail="対象の送り状が見つかりません")
+        # 生のJSONエラー画面になってしまう（フォームの通常送信にはHTTPExceptionが不向き）ため、
+        # 他のエラーと同様に呼び出し元へのリダイレクト＋トーストで知らせる
+        return RedirectResponse(url=f"{redirect_to}?fulfilled=failed", status_code=303)
 
     notify = notify_customer == "on"
-    tracking_company = TRACKING_COMPANY_NAMES.get(record.get("carrier") or "yamato", "")
+    carrier = record.get("carrier") or "yamato"
+    tracking_company = TRACKING_COMPANY_NAMES.get(carrier, "")
+    tracking_url = _build_tracking_url(carrier, record.get("yamato_tracking_no") or "")
 
     try:
         store_name, shopify, order, store_errors = await find_order(record["order_name"])
         if not order:
             raise Exception(f"Shopify注文が見つかりません: {store_errors}")
         await shopify.fulfill_order(
-            order["id"], record.get("yamato_tracking_no") or "", tracking_company, notify_customer=notify,
+            order["id"], record.get("yamato_tracking_no") or "", tracking_company,
+            notify_customer=notify, tracking_url=tracking_url,
         )
         status_text = "ok（メール送信あり）" if notify else "ok（メール送信なし）"
         db.update_shipment_record(record_id, shopify_fulfillment_status=status_text)

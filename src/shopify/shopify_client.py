@@ -135,13 +135,19 @@ class ShopifyClient:
             if r_put.status_code != 200:
                 raise Exception(f"Failed to tag order {order_id}: {r_put.status_code} - {r_put.text}")
 
-    async def fulfill_order(self, order_id: int, tracking_number: str, tracking_company: str, notify_customer: bool = True) -> None:
+    async def fulfill_order(
+        self, order_id: int, tracking_number: str, tracking_company: str, notify_customer: bool = True,
+        tracking_url: str = "",
+    ) -> None:
         """
         注文をShopify標準の「発送済み」（フルフィルメント）にする。
         notify_customer=Trueの場合、Shopifyから発送通知メールが自動送信される
         （ショップ側で発送通知メール自体を無効化していない限り）。Falseの場合は送信されない。
         現行のREST API（2022-07以降）ではフルフィルメントの直接作成は廃止されており、
         fulfillment_orders経由での作成が必須のため、その方式を使う。
+        tracking_urlを明示的に渡すと、Shopify側がtracking_companyの名称から追跡リンクを
+        自動推測する（ヤマト・佐川を認識できず他社のリンクになってしまう事例が確認された）
+        のを避け、常に正しい追跡ページへのリンクになる。
         """
         shop_domain = self.shop_url
         base = shop_domain if shop_domain.startswith("http") else f"https://{shop_domain}"
@@ -157,10 +163,13 @@ class ShopifyClient:
             if not open_fos:
                 raise Exception("フルフィルメント対象の注文明細が見つかりませんでした（既に発送済み、またはキャンセル済みの可能性）")
 
+            tracking_info = {"number": tracking_number, "company": tracking_company}
+            if tracking_url:
+                tracking_info["url"] = tracking_url
             payload = {
                 "fulfillment": {
                     "line_items_by_fulfillment_order": [{"fulfillment_order_id": fo["id"]} for fo in open_fos],
-                    "tracking_info": {"number": tracking_number, "company": tracking_company},
+                    "tracking_info": tracking_info,
                     "notify_customer": notify_customer,
                 }
             }
