@@ -451,13 +451,15 @@ async def api_scan_lookup(request: Request, body: ScanOrderRequest):
     shipping_method = db.classify_shipping_method(order.get("tags", ""))
     carrier = "sagawa" if shipping_method == "佐川" else "yamato"
 
-    # 個口数（2〜3）を選択できるのは、ヤマトの発払い("0")・コレクト("2")、
-    # 佐川の通常発送（代引きでない場合）のみ。ヤマトのネコポス・佐川の代引きは個口指定不可。
+    # 個口数（2〜3）を選択できるのは、ヤマトの発払い("0")、佐川の通常発送（代引きでない場合）のみ。
+    # ヤマトの複数口は公式仕様書の伝票種別上「発払い（複数口）」という独立種別でのみ対応しており、
+    # コレクト・ネコポス用の複数口種別は存在しない（実機確認済み：コレクトで試したところpackage_qty
+    # が無視され、PDFが1ページのまま変化しなかった）。
     yamato_service_type = db.classify_yamato_service_type(order.get("tags", ""))
     if carrier == "sagawa":
         supports_multi_piece = yamato_service_type != "2"
     else:
-        supports_multi_piece = yamato_service_type in ("0", "2")
+        supports_multi_piece = yamato_service_type == "0"
 
     return {
         "found": True,

@@ -114,6 +114,8 @@ def format_yamato_error(result: dict) -> str:
         return "ヤマトAPIの印刷データ作成が時間内に完了しませんでした。時間をおいて再試行してください。"
     if step == "download":
         return f"送り状PDFのダウンロードに失敗しました（HTTP {result.get('status')}）: {result.get('body', '')[:300]}"
+    if step == "unsupported_multi_piece":
+        return "ヤマトの複数口（個口数2以上）は発払いのみ対応しています。コレクト・ネコポスでは選択できません。"
     return str(result)
 
 
@@ -366,57 +368,74 @@ async def issue_yamato_pdf(
         # になり、出荷予定日・お届け予定日の両方が正しく印字される。
         delivery_date = "最短日"
 
-    shipment_data = {
-        "shipment_number":              f"SHOP-{order_no}",
-        "service_type":                 yamato_req.service_type,
-        "is_cool":                      "0",
-        "shipment_date":                ship_date,
-        "delivery_date":                delivery_date,
-        "amount":                       yamato_req.amount,
-        "tax_amount":                   yamato_req.tax_amount,
-        "is_printing_lot":              "",
-        "invoice_code":                 INVOICE_CODE,
-        "invoice_code_ext":             INVOICE_EXT,
-        "invoice_freight_no":           INVOICE_FREIGHT,
-        "invoice_name":                 "",
-        "payment_flg":                  "0",
-        "payment_number":               "",
-        "payment_receipt_no1":          "",
-        "payment_receipt_no2":          "",
-        "payment_receipt_no3":          "",
-        "closure_key":                  "",
-        "input_system_type":            "api",
-        "package_qty":                  str(package_count),
-        "delivery_time_zone":           delivery_time_zone,
-        "is_using_shipment_email":      "0",
-        "is_using_delivery_email":      "0",
-        "shipper_telephone_display":    yamato_req.sender_phone,
-        "shipper_name":                 yamato_req.sender_name,
-        "shipper_zip_code":             yamato_req.sender_zip.replace("-", ""),
-        "shipper_address":              yamato_req.sender_address,
-        "shipper_address4":             yamato_req.sender_address2,
-        "consignee_telephone_display":  yamato_req.recipient_phone,
-        "consignee_name":               yamato_req.recipient_name,
-        "consignee_zip_code":           yamato_req.recipient_zip.replace("-", ""),
-        "consignee_address":            yamato_req.recipient_address,
-        "consignee_address4":           yamato_req.recipient_address2,
-        "item_name1":                   yamato_req.item_name,
-        "item_name2":                   "",
-        # 荷扱い1・2（handling_information1/2）は常に「取扱注意」「天地無用」を印字する
-        "handling_information1":        "取扱注意",
-        "handling_information2":        "天地無用",
-        # 記事（note）には注文番号を印字する（全角22文字まで）
-        "note":                         f"注文番号 {order_name}"[:22],
-        "is_using_shipment_post_email":     "0",
-        "is_using_cons_deli_post_email":    "0",
-        "is_using_shipper_deli_post_email": "0",
-    }
+    # ヤマトで「複数口」として物理的に複数枚の送り状を発行できるのは、公式仕様書の伝票種別
+    # ①〜⑩のうち「発払い（複数口）」(service_type="6") のみ。コレクト・ネコポス用の複数口
+    # 種別は存在せず、通常のservice_typeのままpackage_qtyを2以上にしても「それ以外の場合は1」
+    # 固定で無視される（実機確認済み：PDFが1ページのまま変化しない）。
+    # 複数口を実現するには、同一の複数口くくりキー(closure_key)を持つ出荷データをN件
+    # entry配列にまとめて同じeditA/issueリクエストで送る必要がある。
+    is_multi_piece = package_count > 1
+    if is_multi_piece and yamato_req.service_type != "0":
+        return False, {"step": "unsupported_multi_piece", "service_type": yamato_req.service_type}
 
-    payload = {"feed": {"entry": [{"shipment": shipment_data}]}}
+    service_type_to_send = "6" if is_multi_piece else yamato_req.service_type
+    closure_key = f"CK{order_no}"[:20] if is_multi_piece else ""
+    piece_count = package_count if is_multi_piece else 1
 
-    print(f"\n[{order_no}] ヤマトAPI送信データ:")
-    print(f"  お届け先: {shipment_data['consignee_name']} / 〒{shipment_data['consignee_zip_code']} {shipment_data['consignee_address']} / {shipment_data['consignee_telephone_display']}")
-    print(f"  品名: {shipment_data['item_name1']}")
+    def build_shipment_data(piece_index: int) -> dict:
+        return {
+            "shipment_number":              f"SHOP-{order_no}" + (f"-{piece_index + 1}" if is_multi_piece else ""),
+            "service_type":                 service_type_to_send,
+            "is_cool":                      "0",
+            "shipment_date":                ship_date,
+            "delivery_date":                delivery_date,
+            "amount":                       yamato_req.amount,
+            "tax_amount":                   yamato_req.tax_amount,
+            "is_printing_lot":              "",
+            "invoice_code":                 INVOICE_CODE,
+            "invoice_code_ext":             INVOICE_EXT,
+            "invoice_freight_no":           INVOICE_FREIGHT,
+            "invoice_name":                 "",
+            "payment_flg":                  "0",
+            "payment_number":               "",
+            "payment_receipt_no1":          "",
+            "payment_receipt_no2":          "",
+            "payment_receipt_no3":          "",
+            "closure_key":                  closure_key,
+            "input_system_type":            "api",
+            # 複数口は「同一くくりキー内の合計が2〜99」であればよいため、1口=1件として各1を指定
+            "package_qty":                  "1",
+            "delivery_time_zone":           delivery_time_zone,
+            "is_using_shipment_email":      "0",
+            "is_using_delivery_email":      "0",
+            "shipper_telephone_display":    yamato_req.sender_phone,
+            "shipper_name":                 yamato_req.sender_name,
+            "shipper_zip_code":             yamato_req.sender_zip.replace("-", ""),
+            "shipper_address":              yamato_req.sender_address,
+            "shipper_address4":             yamato_req.sender_address2,
+            "consignee_telephone_display":  yamato_req.recipient_phone,
+            "consignee_name":               yamato_req.recipient_name,
+            "consignee_zip_code":           yamato_req.recipient_zip.replace("-", ""),
+            "consignee_address":            yamato_req.recipient_address,
+            "consignee_address4":           yamato_req.recipient_address2,
+            "item_name1":                   yamato_req.item_name,
+            "item_name2":                   "",
+            # 荷扱い1・2（handling_information1/2）は常に「取扱注意」「天地無用」を印字する
+            "handling_information1":        "取扱注意",
+            "handling_information2":        "天地無用",
+            # 記事（note）には注文番号を印字する（全角22文字まで）
+            "note":                         f"注文番号 {order_name}"[:22],
+            "is_using_shipment_post_email":     "0",
+            "is_using_cons_deli_post_email":    "0",
+            "is_using_shipper_deli_post_email": "0",
+        }
+
+    shipment_data_list = [build_shipment_data(i) for i in range(piece_count)]
+    payload = {"feed": {"entry": [{"shipment": sd} for sd in shipment_data_list]}}
+
+    print(f"\n[{order_no}] ヤマトAPI送信データ（{piece_count}口）:")
+    print(f"  お届け先: {shipment_data_list[0]['consignee_name']} / 〒{shipment_data_list[0]['consignee_zip_code']} {shipment_data_list[0]['consignee_address']} / {shipment_data_list[0]['consignee_telephone_display']}")
+    print(f"  品名: {shipment_data_list[0]['item_name1']}")
 
     # Step 1: 仮データ登録・データチェック
     r1 = await client.post(
@@ -434,44 +453,41 @@ async def issue_yamato_pdf(
     if not entries:
         return False, {"step": "editA_parse", "body": r1_data}
 
-    entry = entries[0]
-    shipment = entry.get("shipment", {})
-    tracking_number = shipment.get("tracking_number", "")
-    created_ms = shipment.get("created_ms", "")
-    error_flg = shipment.get("error_flg", "0")
-    errors = entry.get("error", [])
-
-    if errors:
+    all_errors = []
+    for e in entries:
+        all_errors.extend(e.get("error", []))
+    if all_errors:
         print("  ⚠ ヤマトAPIバリデーション:")
-        for e in errors:
+        for e in all_errors:
             print(f"    [{e.get('error_code')}] {e.get('error_property_name')}: {e.get('error_description')}")
 
-    if error_flg == "9":
-        return False, {"step": "editA_check", "errors": errors}
+    if any(e.get("shipment", {}).get("error_flg", "0") == "9" for e in entries):
+        return False, {"step": "editA_check", "errors": all_errors}
 
     # Step 2: 送り状発行
-    # print_type: ネコポス(A)は専用レイアウト(A4 6面付け)固定、それ以外(発払い/コレクト等)はA4マルチ印刷
-    service_type_resolved = shipment.get("service_type", "0")
+    # print_type: ネコポス(A)は専用レイアウト(A4 6面付け)固定、それ以外(発払い/コレクト/複数口等)はA4マルチ印刷
+    service_type_resolved = entries[0].get("shipment", {}).get("service_type", "0")
     print_type = "A" if service_type_resolved == "A" else "m"
 
-    issue_shipment = {
-        "tracking_number": tracking_number,
-        "created_ms":      created_ms,
-        "service_type":    service_type_resolved,
-        "printer_type":    "1",
-        "shipment_flg":    "1",
-    }
-    if service_type_resolved == "A":
-        # ネコポスは必須: 送り状本体("0")か払込票("1")かを指定
-        issue_shipment["is_agent"] = "0"
+    issue_entries = []
+    for idx, e in enumerate(entries):
+        sh = e.get("shipment", {})
+        issue_shipment = {
+            "tracking_number": sh.get("tracking_number", ""),
+            "created_ms":      sh.get("created_ms", ""),
+            "service_type":    sh.get("service_type", service_type_resolved),
+            "printer_type":    "1",
+            "shipment_flg":    "1",
+        }
+        if sh.get("service_type") == "A":
+            # ネコポスは必須: 送り状本体("0")か払込票("1")かを指定
+            issue_shipment["is_agent"] = "0"
+        issue_entries.append({"id": str(e.get("id", str(idx + 1))), "shipment": issue_shipment})
 
     issue_payload = {
         "feed": {
             "updated": updated,
-            "entry": [{
-                "id": str(entry.get("id", "1")),
-                "shipment": issue_shipment,
-            }],
+            "entry": issue_entries,
         }
     }
     r2 = await client.post(
