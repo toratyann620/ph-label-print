@@ -32,6 +32,7 @@ async def lookup_address_by_zip(zip_code: str, timeout: float = 3.0) -> dict | N
         return {
             "province": result.get("address1", ""),
             "city": result.get("address2", ""),
+            "town": result.get("address3", ""),
         }
     except Exception:
         return None

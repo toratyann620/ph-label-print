@@ -438,7 +438,13 @@ async def api_scan_lookup(request: Request, body: ScanOrderRequest):
     zip_result = await lookup_address_by_zip(recipient["zip"])
     if zip_result:
         full_shopify_address = f"{recipient['province']}{recipient['city']}{recipient['address1']}"
-        zip_area = f"{zip_result['province']}{zip_result['city']}"
+        # 町域名（zipcloudのaddress3）まで含めて照合する。市区町村レベルだけだと、
+        # 同じ区内の別の町域の郵便番号を誤入力したケース（例: 郵便番号は「中台」だが
+        # 住所テキストは「板橋」のまま、など）を見逃してしまう
+        # （佐川APIは町域レベルまで厳密に突き合わせてエラーにするため、こちらも揃える）。
+        town = zip_result.get("town") or ""
+        has_specific_town = town and "以下に掲載がない" not in town
+        zip_area = f"{zip_result['province']}{zip_result['city']}{town if has_specific_town else ''}"
         if zip_area and zip_area not in full_shopify_address:
             zip_mismatch = True
             zip_suggested_address = zip_result

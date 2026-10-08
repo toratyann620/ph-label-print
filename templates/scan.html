@@ -398,7 +398,7 @@
     }
 
     if (data.zip_mismatch) {
-      const zipAddr = data.zip_suggested_address ? `${data.zip_suggested_address.province}${data.zip_suggested_address.city}` : '';
+      const zipAddr = data.zip_suggested_address ? `${data.zip_suggested_address.province}${data.zip_suggested_address.city}${(data.zip_suggested_address.town || '').includes('以下に掲載がない') ? '' : (data.zip_suggested_address.town || '')}` : '';
       resultCard.innerHTML = `
         <div class="kicker">読み取り結果</div>
         <div class="order-name">${escapeHtml(data.order_name)}</div>
