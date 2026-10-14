@@ -110,17 +110,35 @@ powershell -ExecutionPolicy Bypass -File windows\register_tasks.ps1
 
 ## 8. スマホ用URLの確認
 
-起動後、`windows\run\tunnel.err.log` を開くと、以下のような行があります。
+### 8-1. 固定URL（`label-print.muog.co.jp`）のセットアップ（初回のみ）
 
+本システムは `muog.co.jp` ドメインの固定URL（`https://label-print.muog.co.jp`）で運用する前提で
+`windows\cloudflared_config.yml` を用意済みです。以下をこのWindows PCで**一度だけ**実行してください
+（`windows\tunnel-credentials.json` が既に存在する場合はスキップ可）。
+
+```powershell
+cd C:\ph-label-print
+.\tools\cloudflared.exe tunnel login
 ```
-https://xxxxx-xxxxx-xxxxx-xxxxx.trycloudflare.com
+ブラウザが開くので、`muog.co.jp` を管理しているCloudflareアカウントでログイン・許可してください。
+
+```powershell
+.\tools\cloudflared.exe tunnel create ph-label-print --credentials-file windows\tunnel-credentials.json
+.\tools\cloudflared.exe tunnel route dns ph-label-print label-print.muog.co.jp
 ```
 
-このURLの末尾に `/scan` を付けたもの（例: `https://xxxxx.trycloudflare.com/scan`）をスタッフのスマホに共有してください。
+この2つのコマンドで、トンネルの作成と `label-print.muog.co.jp` へのDNS設定（CNAME）が完了します。
+以降は `windows\start_app.ps1` が `windows\tunnel-credentials.json` の存在を自動検出し、
+固定URL（`https://label-print.muog.co.jp`）で起動するようになります。
 
-**⚠️ 重要**: 現在は無料のクイックトンネルを使っているため、**サーバーを再起動するたびにURLが変わります**。毎日20:00に停止・8:00に再起動する運用のため、**このURLは毎日変わります**。
+### 8-2. URLの確認
 
-固定URL（例: `yamato.photopri.com`）が必要な場合は、`photopri.com`ドメインをCloudflareに登録すれば恒久的なURLに切り替えられます。ご希望があればお知らせください。
+起動後、上記のセットアップが完了していれば、固定URL `https://label-print.muog.co.jp` でアクセスできます。
+`https://label-print.muog.co.jp/scan` をスタッフのスマホに共有してください（**再起動してもURLは変わりません**）。
+
+まだセットアップが済んでいない場合は、一時的なクイックトンネル（`windows\run\tunnel.err.log` に
+記録される `https://xxxxx-xxxxx-xxxxx-xxxxx.trycloudflare.com` 形式のURL。**再起動のたびに変わります**）
+にフォールバックします。
 
 ---
 
