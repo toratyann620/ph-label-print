@@ -96,8 +96,9 @@ if (-not (Get-Process -Id $server.Id -ErrorAction SilentlyContinue)) {
 }
 
 # ── Start Cloudflare Tunnel ─────────────────────────────────────
-# If a fixed-URL setup exists (windows\tunnel-credentials.json), use the named
-# tunnel; otherwise fall back to the quick tunnel (URL changes every restart).
+# Uses the free quick tunnel (URL changes every restart). A fixed entry URL
+# is provided separately via a redirect hosted on muog.co.jp; see the
+# "Update the fixed-URL redirect" section below.
 #
 # cloudflared.exe resolution order (avoids relying on the system PATH, which has
 # repeatedly failed to be visible to Task Scheduler / freshly opened PowerShell
@@ -116,16 +117,7 @@ if (-not $cloudflaredPath) {
 }
 Write-Output "Using cloudflared: $cloudflaredPath"
 
-$credentialsFile = Join-Path $root "windows\tunnel-credentials.json"
-$configFile = Join-Path $root "windows\cloudflared_config.yml"
-
-if (Test-Path $credentialsFile) {
-    $tunnelArgs = @("tunnel", "--config", $configFile, "run", "ph-label-print")
-    Write-Output "Starting Cloudflare Tunnel with fixed URL (label-print.muog.co.jp)."
-} else {
-    $tunnelArgs = @("tunnel", "--url", "http://localhost:3131")
-    Write-Output "No fixed-URL setup found (windows\tunnel-credentials.json missing). Using a temporary quick-tunnel URL."
-}
+$tunnelArgs = @("tunnel", "--url", "http://localhost:3131")
 
 $tunnelStarted = $false
 try {
@@ -147,17 +139,41 @@ try {
 # the database for PINs every time the app is restarted)
 $tunnelUrl = $null
 if ($tunnelStarted) {
-    if (Test-Path $credentialsFile) {
-        $tunnelUrl = "https://label-print.muog.co.jp"
-    } else {
-        for ($i = 0; $i -lt 15; $i++) {
-            Start-Sleep -Seconds 1
-            $logLines = Get-Content (Join-Path $runDir "tunnel.err.log") -ErrorAction SilentlyContinue
-            $found = $logLines | Select-String -Pattern "https://[A-Za-z0-9\-]+\.trycloudflare\.com" | Select-Object -First 1
-            if ($found) {
-                $tunnelUrl = $found.Matches[0].Value
-                break
-            }
+    for ($i = 0; $i -lt 15; $i++) {
+        Start-Sleep -Seconds 1
+        $logLines = Get-Content (Join-Path $runDir "tunnel.err.log") -ErrorAction SilentlyContinue
+        $found = $logLines | Select-String -Pattern "https://[A-Za-z0-9\-]+\.trycloudflare\.com" | Select-Object -First 1
+        if ($found) {
+            $tunnelUrl = $found.Matches[0].Value
+            break
+        }
+    }
+}
+
+# -- Update the fixed-URL redirect (muog.co.jp/label-print/) ----
+# The quick-tunnel URL changes every restart, so staff instead use a fixed
+# entry URL (e.g. https://muog.co.jp/label-print/scan) hosted separately on
+# the muog.co.jp server, which 302-redirects to whatever URL is current.
+# Push the new URL to that redirect endpoint here on every start. If
+# REDIRECT_UPDATE_URL/REDIRECT_UPDATE_SECRET are not set in .env, this is
+# skipped and the direct trycloudflare.com URL is used as before.
+function Get-EnvValue($key) {
+    $envFile = Join-Path $root ".env"
+    if (-not (Test-Path $envFile)) { return $null }
+    $line = Get-Content $envFile | Where-Object { $_ -match "^\s*$key\s*=" } | Select-Object -Last 1
+    if (-not $line) { return $null }
+    return ($line -replace "^\s*$key\s*=", "").Trim().Trim('"')
+}
+
+if ($tunnelUrl) {
+    $redirectUpdateUrl = Get-EnvValue "REDIRECT_UPDATE_URL"
+    $redirectUpdateSecret = Get-EnvValue "REDIRECT_UPDATE_SECRET"
+    if ($redirectUpdateUrl -and $redirectUpdateSecret) {
+        try {
+            $resp = Invoke-WebRequest -Uri $redirectUpdateUrl -Method Get -Body @{ secret = $redirectUpdateSecret; url = $tunnelUrl } -UseBasicParsing -TimeoutSec 10
+            Write-Output "Fixed-URL redirect updated: $($resp.Content)"
+        } catch {
+            Write-Warning "Failed to update fixed-URL redirect: $_"
         }
     }
 }
@@ -173,8 +189,14 @@ try {
 Write-Output ""
 Write-Output "=================================================="
 if ($tunnelUrl) {
-    Write-Output "  Admin screen : $tunnelUrl/admin/processing"
-    Write-Output "  Scan screen  : $tunnelUrl/scan"
+    if ($redirectUpdateUrl -and $redirectUpdateSecret) {
+        Write-Output "  Admin screen : https://muog.co.jp/label-print/admin/processing"
+        Write-Output "  Scan screen  : https://muog.co.jp/label-print/scan"
+        Write-Output "  (direct tunnel URL, for troubleshooting: $tunnelUrl)"
+    } else {
+        Write-Output "  Admin screen : $tunnelUrl/admin/processing"
+        Write-Output "  Scan screen  : $tunnelUrl/scan"
+    }
 } else {
     Write-Output "  Tunnel URL not detected within 15s."
     Write-Output "  Check manually: windows\run\tunnel.err.log"

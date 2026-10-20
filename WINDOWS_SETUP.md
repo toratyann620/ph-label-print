@@ -110,35 +110,33 @@ powershell -ExecutionPolicy Bypass -File windows\register_tasks.ps1
 
 ## 8. スマホ用URLの確認
 
-### 8-1. 固定URL（`label-print.muog.co.jp`）のセットアップ（初回のみ）
+ヤマト送り状発行システムは `muog.co.jp` のドメイン自体（CloudflareではなくConoHaでDNS管理）
+とは別ホストのため、Cloudflareの固定URL機能（named tunnel）は使えません。代わりに、
+`https://muog.co.jp/label-print/`（ConoHa WING上の既存サイトの一フォルダ）に、現在の
+quick tunnel URLへ302リダイレクトするPHPページを別途用意しています。
 
-本システムは `muog.co.jp` ドメインの固定URL（`https://label-print.muog.co.jp`）で運用する前提で
-`windows\cloudflared_config.yml` を用意済みです。以下をこのWindows PCで**一度だけ**実行してください
-（`windows\tunnel-credentials.json` が既に存在する場合はスキップ可）。
+### 8-1. `.env` の設定（初回のみ）
 
-```powershell
-cd C:\ph-label-print
-.\tools\cloudflared.exe tunnel login
+`.env` に以下を設定してください（値は `muog.co.jp` サーバー側の `update.php` に埋め込んだ
+シークレットと一致させる必要があります。Mac側の `.env` と同じ値を使ってください）。
+
 ```
-ブラウザが開くので、`muog.co.jp` を管理しているCloudflareアカウントでログイン・許可してください。
-
-```powershell
-.\tools\cloudflared.exe tunnel create ph-label-print --credentials-file windows\tunnel-credentials.json
-.\tools\cloudflared.exe tunnel route dns ph-label-print label-print.muog.co.jp
+REDIRECT_UPDATE_URL=https://muog.co.jp/label-print/update.php
+REDIRECT_UPDATE_SECRET=（Mac側の.envと同じ値）
 ```
-
-この2つのコマンドで、トンネルの作成と `label-print.muog.co.jp` へのDNS設定（CNAME）が完了します。
-以降は `windows\start_app.ps1` が `windows\tunnel-credentials.json` の存在を自動検出し、
-固定URL（`https://label-print.muog.co.jp`）で起動するようになります。
 
 ### 8-2. URLの確認
 
-起動後、上記のセットアップが完了していれば、固定URL `https://label-print.muog.co.jp` でアクセスできます。
-`https://label-print.muog.co.jp/scan` をスタッフのスマホに共有してください（**再起動してもURLは変わりません**）。
+`windows\start_app.ps1` は起動のたびに、検出したquick tunnel URLを自動で
+`https://muog.co.jp/label-print/update.php` へ送信します。これにより、スタッフは常に
+固定URL `https://muog.co.jp/label-print/scan` でアクセスできます（**再起動してもURLは
+変わりません**。アクセス後、ブラウザのアドレスバーは実際のtrycloudflare.comのURLに
+302リダイレクトされますが、ブックマーク・QRコードには固定URLを使えば問題ありません）。
 
-まだセットアップが済んでいない場合は、一時的なクイックトンネル（`windows\run\tunnel.err.log` に
-記録される `https://xxxxx-xxxxx-xxxxx-xxxxx.trycloudflare.com` 形式のURL。**再起動のたびに変わります**）
-にフォールバックします。
+`.env` にREDIRECT_UPDATE_URL/REDIRECT_UPDATE_SECRETを設定していない場合は、この更新は
+スキップされ、`windows\run\tunnel.err.log` に記録される一時的なクイックトンネルURL
+（`https://xxxxx-xxxxx-xxxxx-xxxxx.trycloudflare.com` 形式。**再起動のたびに変わります**）
+を直接使う従来の運用になります。
 
 ---
 
