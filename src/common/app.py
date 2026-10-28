@@ -48,9 +48,11 @@ async def on_startup():
 def _nav_counts() -> dict:
     orders = db.list_orders_cache()
     not_issued = sum(1 for o in orders if o["shipping_method"] in ("ヤマト", "佐川", "ネコポス") and o["yamato_status"] != "issued")
+    requests_open = sum(1 for r in db.list_change_requests() if r["status"] != "done")
     return {
         "processing": not_issued,
         "errors": db.count_shipments(db.ERROR_STATUSES),
+        "requests_open": requests_open,
     }
 
 
@@ -338,6 +340,18 @@ async def admin_errors_retry(request: Request, order_name: str = Form(...)):
     record = await issue_for_order_name(order_name)
     result = "success" if record["status"] == "done" else "failed"
     return RedirectResponse(url=f"/admin/errors?retried={result}", status_code=303)
+
+
+@app.get("/admin/requests", response_class=HTMLResponse)
+async def admin_requests(request: Request):
+    """改修依頼とその対応状況の一覧（スタッフからの依頼を集約して可視化する）"""
+    if (redirect := _require_admin(request)) is not None:
+        return redirect
+    rows = db.list_change_requests()
+    return templates.TemplateResponse("admin/requests.html", {
+        "request": request, "active": "requests", "counts": _nav_counts(),
+        "rows": rows, "status_labels": db.CHANGE_REQUEST_STATUS_LABELS,
+    })
 
 
 @app.get("/admin/settings", response_class=HTMLResponse)

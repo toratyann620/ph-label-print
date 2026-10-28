@@ -198,6 +198,20 @@ def init_db():
             )
         """)
 
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS change_requests (
+                id           TEXT PRIMARY KEY,
+                category     TEXT,
+                summary      TEXT NOT NULL,
+                detail       TEXT,
+                order_names  TEXT,
+                status       TEXT NOT NULL,
+                note         TEXT,
+                requested_at TEXT,
+                updated_at   TEXT NOT NULL
+            )
+        """)
+
 
 def create_shipment_record(**fields) -> int:
     now = _now()
@@ -375,3 +389,51 @@ def get_orders_cache_by_ids(order_ids: list[int]) -> list[dict]:
             f"SELECT * FROM orders_cache WHERE order_id IN ({placeholders})", order_ids
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+# 改修依頼一覧（管理画面 /admin/requests）のステータス表示ラベル・並び順
+CHANGE_REQUEST_STATUS_LABELS = {
+    "done":        "対応済み",
+    "in_progress": "対応中",
+    "todo":        "未対応",
+    "needs_info":  "要追加情報",
+}
+CHANGE_REQUEST_STATUS_ORDER = ["todo", "needs_info", "in_progress", "done"]
+
+
+def upsert_change_request(request_id: str, **fields) -> None:
+    """
+    改修依頼1件を登録・更新する。request_idが既存なら更新、無ければ新規作成。
+    コードから既知の依頼内容・対応状況を反映させるために使う（スタッフが画面上で
+    入力する機能は現状無く、対応状況の記録・可視化が目的）。
+    """
+    now = _now()
+    with get_conn() as conn:
+        existing = conn.execute(
+            "SELECT id FROM change_requests WHERE id=?", (request_id,)
+        ).fetchone()
+        fields["updated_at"] = now
+        if existing:
+            set_clause = ",".join(f"{k}=?" for k in fields)
+            conn.execute(
+                f"UPDATE change_requests SET {set_clause} WHERE id=?",
+                [*fields.values(), request_id],
+            )
+        else:
+            fields.setdefault("requested_at", now)
+            columns = ["id"] + list(fields.keys())
+            values = [request_id] + list(fields.values())
+            placeholders = ",".join("?" for _ in values)
+            conn.execute(
+                f"INSERT INTO change_requests ({','.join(columns)}) VALUES ({placeholders})",
+                values,
+            )
+
+
+def list_change_requests() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM change_requests").fetchall()
+        items = [dict(r) for r in rows]
+    order_index = {s: i for i, s in enumerate(CHANGE_REQUEST_STATUS_ORDER)}
+    items.sort(key=lambda r: (order_index.get(r["status"], 99), r.get("requested_at") or ""))
+    return items

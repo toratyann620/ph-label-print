@@ -89,6 +89,10 @@
       <a href="/admin/settings" class="{{ 'active' if active == 'settings' else '' }}">
         <span>設定</span>
       </a>
+      <a href="/admin/requests" class="{{ 'active' if active == 'requests' else '' }}">
+        <span>改修依頼一覧</span>
+        {% if counts.requests_open %}<span class="badge">{{ counts.requests_open }}</span>{% endif %}
+      </a>
       <a href="/">
         <span>手動発行フォーム</span>
       </a>

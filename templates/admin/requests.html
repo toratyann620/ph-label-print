@@ -1,0 +1,53 @@
+{% extends "admin/base.html" %}
+{% block title %}改修依頼一覧{% endblock %}
+{% block extra_head %}
+<style>
+  .req-status { display: inline-block; padding: 3px 11px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+  .req-status-done        { background: #e6f6ea; color: #1a7d3a; }
+  .req-status-in_progress { background: #fdeeda; color: #b3590a; }
+  .req-status-todo        { background: #fdeceb; color: #c0321a; }
+  .req-status-needs_info  { background: #eef2ff; color: #3b3fc7; }
+  .req-summary { font-weight: 700; font-size: 13.5px; color: #1a1a2e; }
+  .req-detail { font-size: 12.5px; color: #555; line-height: 1.6; margin-top: 4px; white-space: pre-wrap; }
+  .req-note { font-size: 12px; color: #1a7d3a; line-height: 1.6; margin-top: 6px; white-space: pre-wrap; }
+  .req-orders { font-size: 11px; color: #999; margin-top: 4px; }
+  .req-category { font-size: 11px; color: #999; }
+</style>
+{% endblock %}
+{% block content %}
+  <h1>改修依頼一覧</h1>
+  <p class="subtitle">現場から寄せられた改修依頼・不具合報告とその対応状況です。「未対応」「要追加情報」「対応中」「対応済み」の順に表示しています。</p>
+
+  <div class="card">
+    {% if rows %}
+    <table>
+      <thead>
+        <tr>
+          <th>状態</th>
+          <th>区分</th>
+          <th>内容</th>
+          <th>対象注文番号</th>
+          <th>更新日</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td><span class="req-status req-status-{{ row.status }}">{{ status_labels.get(row.status, row.status) }}</span></td>
+          <td class="req-category">{{ row.category or '-' }}</td>
+          <td>
+            <div class="req-summary">{{ row.summary }}</div>
+            {% if row.detail %}<div class="req-detail">{{ row.detail }}</div>{% endif %}
+            {% if row.note %}<div class="req-note">対応内容: {{ row.note }}</div>{% endif %}
+          </td>
+          <td class="req-orders">{{ row.order_names or '-' }}</td>
+          <td style="font-size:12px;color:#999;">{{ row.updated_at[:10] }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">改修依頼はまだ登録されていません。</div>
+    {% endif %}
+  </div>
+{% endblock %}
