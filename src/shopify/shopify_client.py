@@ -20,6 +20,10 @@ SENDER_DEFAULTS = {
 
 # ヤマトAPI item_name1（品名称1）の上限は全角換算50単位（全角25文字/半角50文字）
 YAMATO_ITEM_NAME_MAX_UNITS = 50
+# ヤマトAPI consignee_department1（お届け先・部門名1、会社名用に流用）の上限は全角換算50単位
+YAMATO_DEPARTMENT_MAX_UNITS = 50
+# 佐川API otodokeNm2（届先氏名2、会社名用に流用）の上限は文字数ベースで25文字
+SAGAWA_RECIPIENT_NAME2_MAX_CHARS = 25
 # 佐川API kiji1（記事＝品名用に流用）の上限は文字数ベースで32文字
 SAGAWA_KIJI_MAX_CHARS = 32
 
@@ -245,6 +249,8 @@ class ShopifyClient:
             "address": recipient_address,
             "address2": address2,
             "phone":   clean_phone(shipping_address.get("phone") or ""),
+            # 会社名（法人宛の場合のみ設定される）。未設定なら空文字
+            "company": shipping_address.get("company") or "",
             # 佐川API（お届け先住所を3行に分けて送る必要がある）向けの内訳
             "province": province,
             "city":     city,
@@ -304,6 +310,7 @@ class ShopifyClient:
             recipient_address=recipient["address"],
             recipient_address2=recipient["address2"],
             recipient_phone=recipient["phone"],
+            recipient_company=balance_lines(recipient["company"], YAMATO_DEPARTMENT_MAX_UNITS, width_fn=display_width)[0] if recipient["company"] else "",
             item_name=item_name,
             total_count=1,
             weight_kg=1.0
@@ -341,6 +348,7 @@ class ShopifyClient:
             # 管理番号（半角16文字まで）: Shopify注文名の "#" を除いたもの
             "user_manage_number": (order.get("name") or "").lstrip("#")[:16],
             "recipient_name":     recipient["name"],
+            "recipient_company":  recipient["company"][:SAGAWA_RECIPIENT_NAME2_MAX_CHARS],
             "recipient_zip":      recipient["zip"],
             # 届先住所は3行（各25文字まで）に分けて送る
             "recipient_address1": f"{recipient['province']}{recipient['city']}"[:25],

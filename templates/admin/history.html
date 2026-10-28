@@ -11,6 +11,11 @@
   }
   .fulfill-btn:hover { background: #2e2e48; }
   .fulfill-error { font-size: 10px; color: #c0321a; margin-top: 2px; word-break: break-all; }
+  .discard-btn {
+    width: 100%; box-sizing: border-box; padding: 6px 10px; background: transparent; color: #c0321a;
+    border: 1px solid #e3a99a; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  .discard-btn:hover { background: #fdeceb; }
 </style>
 {% endblock %}
 {% block content %}
@@ -19,6 +24,8 @@
 
   {% if fulfilled == 'success' %}<div class="toast">Shopify側を発送済みにしました。</div>{% endif %}
   {% if fulfilled == 'failed' %}<div class="toast" style="background:#fdeceb;border-color:#fca5a5;color:#c0321a;">発送済み処理に失敗しました。該当行のエラー内容をご確認ください。</div>{% endif %}
+  {% if discarded == 'success' %}<div class="toast">送り状を破棄扱いにしました。同じ注文番号を再度スキャンできます。</div>{% endif %}
+  {% if discarded == 'failed' %}<div class="toast" style="background:#fdeceb;border-color:#fca5a5;color:#c0321a;">破棄処理に失敗しました。</div>{% endif %}
 
   <div class="card">
     {% if rows %}
@@ -37,6 +44,7 @@
           <th>Shopifyタグ付与</th>
           <th>発送済み(Shopify)</th>
           <th>Ship&co照合</th>
+          <th>操作</th>
         </tr>
       </thead>
       <tbody>
@@ -100,6 +108,13 @@
               <pre>{{ row.compare_detail }}</pre>
             </details>
             {% endif %}
+          </td>
+          <td>
+            <form method="post" action="/admin/discard" onsubmit="return confirm('{{ row.order_name }} を破棄扱いにしますか？\n※ヤマト・佐川側の伝票データは取り消されません。既に印刷した紙の送り状は物理的に破棄してください。\n破棄すると同じ注文番号を再度スキャン・発行できるようになります。');">
+              <input type="hidden" name="order_name" value="{{ row.order_name }}">
+              <input type="hidden" name="redirect_to" value="/admin/history">
+              <button type="submit" class="discard-btn">誤操作による破棄</button>
+            </form>
           </td>
         </tr>
         {% endfor %}

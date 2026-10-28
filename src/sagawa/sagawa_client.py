@@ -95,7 +95,7 @@ async def issue_sagawa_pdf(
         "otodokeAdd2": sagawa_req["recipient_address2"],
         "otodokeAdd3": sagawa_req["recipient_address3"],
         "otodokeNm1": sagawa_req["recipient_name"],
-        "otodokeNm2": "",
+        "otodokeNm2": sagawa_req.get("recipient_company", ""),
         "otodokeYubin": sagawa_req["recipient_zip"],
         "otodokeTel": sagawa_req["recipient_phone"],
         "otodokeMailAddress": "",

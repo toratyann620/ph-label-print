@@ -39,7 +39,8 @@
   <h1>処理状況一覧</h1>
   <p class="subtitle">Shopify各ブランドの直近1週間の注文です。注文タグから発送方法を仕分けし、ヤマト・佐川分は未発行/発行済みを管理します（送り状発行時にどちらのAPIを使うか自動判定します）。</p>
 
-  {% if issued %}<div class="toast">選択した {{ issued }} 件の送り状発行処理を実行しました。</div>{% endif %}
+  {% if issued == 'none' %}<div class="toast" style="background:#fdeceb;border-color:#fca5a5;color:#c0321a;">発行対象の注文が選択されていません。チェックボックスで選択してから「送り状発行」を押してください。</div>
+  {% elif issued %}<div class="toast">選択した {{ issued }} 件の送り状発行処理を実行しました。</div>{% endif %}
   {% if scanned %}<div class="toast">inputフォルダの {{ scanned }} 件を読み取り、送り状発行処理を実行しました。エラー・要対応もあわせてご確認ください。</div>{% endif %}
   {% if sync_result and sync_result.error %}<div class="toast" style="background:#fdeceb;border-color:#fca5a5;color:#c0321a;">Shopify同期でエラーが発生しました: {{ sync_result.error }}</div>{% endif %}
   {% if fulfilled == 'success' %}<div class="toast">Shopify側を発送済みにしました。</div>{% endif %}

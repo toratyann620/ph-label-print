@@ -12,6 +12,7 @@ class ShipmentRequest(BaseModel):
     recipient_address: str
     recipient_address2: str = ""   # 建物名等（consignee_address4）。都道府県〜番地までと分けて送る
     recipient_phone: str
+    recipient_company: str = ""    # 会社名（consignee_department1）。法人宛の場合のみ
 
     # 送り元
     sender_name: str
@@ -66,3 +67,4 @@ class ScanOrderRequest(BaseModel):
     delivery_date: str = ""        # 到着日指定（YYYYMMDD）。未指定なら各社の標準/最短
     delivery_time_slot: str = ""   # 到着時間帯指定（配送会社ごとのコード）。未指定なら時間指定なし
     package_count: int = 1         # 個口数（1〜3）。ヤマト発払い/コレクト・佐川通常発送のみ選択可
+    print_position: str = ""       # ネコポスのA4 6面付け印刷開始位置（1〜6）。未指定なら位置1から順番

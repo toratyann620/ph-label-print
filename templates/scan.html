@@ -63,6 +63,7 @@
   }
   .card .kicker { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #999; }
   .card .order-name { font-size: 24px; font-weight: 800; color: #1a1a2e; }
+  .carrier-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; vertical-align: middle; margin-left: 4px; }
   .card .field { display: flex; flex-direction: column; gap: 2px; }
   .card .field .label { font-size: 11px; color: #999; }
   .card .field .value { font-size: 16px; font-weight: 600; color: #1a1a2e; }
@@ -164,6 +165,7 @@
   let selectedDeliveryDate = '';      // YYYYMMDD（任意・到着日指定）
   let selectedDeliveryTimeSlot = '';  // 配送会社ごとの時間帯コード（任意）
   let selectedPackageCount = 1;       // 個口数（1〜3、既定1）
+  let selectedPrintPosition = '';     // ネコポスのA4 6面付け印刷開始位置（1〜6、未指定なら位置1から）
 
   function showOnly(el) {
     [viewIdle, viewCamera, viewLoading, viewResult].forEach(v => v.style.display = 'none');
@@ -232,6 +234,17 @@
     return `<a class="phone-link" href="tel:${escapeHtml(phone)}">📞 ${escapeHtml(phone)}</a>`;
   }
 
+  function carrierBadgeHtml(label) {
+    if (!label) return '';
+    const colors = {
+      'ヤマト':   'background:#fff1e6;color:#b3590a;',
+      '佐川':    'background:#eef2ff;color:#3b3fc7;',
+      'ネコポス': 'background:#fdf2ff;color:#a021c7;',
+    };
+    const style = colors[label] || 'background:#f1f1f1;color:#777;';
+    return `<span class="carrier-badge" style="${style}">${escapeHtml(label)}</span>`;
+  }
+
   // 出荷日（本日／翌営業日）の選択UI。時間による自動判定はせず、必ず手動選択させる。
   function shipTimingToggleHtml() {
     return `
@@ -281,7 +294,12 @@
     ],
   };
 
-  function deliveryOptionsHtml(carrier) {
+  function deliveryOptionsHtml(carrier, supportsDeliveryDate) {
+    // ネコポスは到着日・時間帯を指定しても伝票に反映されない（ヤマト公式仕様：日付印字
+    // フラグはネコポスで常に0固定）ため、その場合は選択できないようにする
+    if (supportsDeliveryDate === false) {
+      return `<div class="hint">ネコポスは到着日・時間帯の指定に対応していません（伝票に反映されません）。</div>`;
+    }
     const slots = DELIVERY_TIME_SLOTS[carrier] || DELIVERY_TIME_SLOTS.yamato;
     const today = new Date();
     const pad = n => String(n).padStart(2, '0');
@@ -348,6 +366,27 @@
     });
   }
 
+  // ネコポスのA4 6面付け印刷位置指定（任意）。使用済みの面を飛ばして印刷したい場合に使う
+  // （ヤマト公式仕様：print_positionパラメータ、1〜6）。ネコポス以外では表示しない
+  function printPositionHtml(isNekopos) {
+    if (!isNekopos) return '';
+    const opts = ['', '1', '2', '3', '4', '5', '6'].map(v =>
+      `<option value="${v}">${v ? `位置 ${v} から` : '位置1から順番に（指定なし）'}</option>`
+    ).join('');
+    return `
+      <div class="form-field">
+        <label>ネコポス印刷位置（任意・使用済み面をスキップする場合）</label>
+        <select id="f-print-position">${opts}</select>
+      </div>
+    `;
+  }
+
+  function wirePrintPosition() {
+    selectedPrintPosition = '';
+    const el = document.getElementById('f-print-position');
+    if (el) el.addEventListener('change', () => { selectedPrintPosition = el.value; });
+  }
+
   // 住所編集フォーム（郵便番号食い違い時・文字数オーバー時の修正、両方で共用）
   function addressFormFieldsHtml(initial) {
     const lines = (initial.lines || []).concat(['', '', '']).slice(0, 3);
@@ -388,6 +427,7 @@
         <div class="field"><div class="label">お客様名</div><div class="value">${escapeHtml(data.customer_name || '-')}</div></div>
         <div class="field"><div class="label">電話番号</div><div class="value">${phoneLinkHtml(data.customer_phone)}</div></div>
         <div class="field"><div class="label">伝票番号</div><div class="value">${escapeHtml(data.tracking_number || '-')}</div></div>
+        <div class="hint" style="margin-bottom:8px;">※直前に通信エラーが出てからの再スキャンの場合、実際には発行・印刷が完了している可能性があります。「再印刷する」を押す前に、既に印刷されていないかご確認ください（二重印刷の原因になります）。</div>
         <button class="btn" id="btn-reprint">再印刷する</button>
         <button class="btn secondary" id="btn-rescan">もう一度スキャン</button>
       `;
@@ -401,7 +441,7 @@
       const zipAddr = data.zip_suggested_address ? `${data.zip_suggested_address.province}${data.zip_suggested_address.city}${(data.zip_suggested_address.town || '').includes('以下に掲載がない') ? '' : (data.zip_suggested_address.town || '')}` : '';
       resultCard.innerHTML = `
         <div class="kicker">読み取り結果</div>
-        <div class="order-name">${escapeHtml(data.order_name)}</div>
+        <div class="order-name">${escapeHtml(data.order_name)} ${carrierBadgeHtml(data.shipping_method_label)}</div>
         <div class="warn-banner">郵便番号と住所が一致しない可能性があります。内容をご確認のうえ、必要であれば修正してください。お客様に電話で確認いただいても構いません。</div>
         <div class="field"><div class="label">電話番号</div><div class="value">${phoneLinkHtml(data.customer_phone)}</div></div>
         <div class="fill-hint">
@@ -413,8 +453,9 @@
           lines: [data.customer_address || '', '', ''],
         })}
         ${shipTimingToggleHtml()}
-        ${deliveryOptionsHtml(data.carrier)}
+        ${deliveryOptionsHtml(data.carrier, data.supports_delivery_date)}
         ${packageCountToggleHtml(data.supports_multi_piece)}
+        ${printPositionHtml(data.shipping_method_label === 'ネコポス')}
         <div class="field"><div class="label">送信先プリンター</div><div class="value" style="font-size:13px;">${escapeHtml(data.printer_name || '-')}</div></div>
         <button class="btn" id="btn-issue">送り状発行</button>
         <button class="btn secondary" id="btn-rescan">もう一度スキャン</button>
@@ -426,6 +467,7 @@
       wireShipTimingToggle();
       wireDeliveryOptions();
       wirePackageCountToggle(data.supports_multi_piece);
+      wirePrintPosition();
       document.getElementById('btn-issue').addEventListener('click', () => issueShipment(data.order_name, collectAddressFormValues()));
       document.getElementById('btn-rescan').addEventListener('click', startCamera);
       showOnly(viewResult);
@@ -434,13 +476,14 @@
 
     resultCard.innerHTML = `
       <div class="kicker">読み取り結果</div>
-      <div class="order-name">${escapeHtml(data.order_name)}</div>
+      <div class="order-name">${escapeHtml(data.order_name)} ${carrierBadgeHtml(data.shipping_method_label)}</div>
       <div class="field"><div class="label">お客様名</div><div class="value">${escapeHtml(data.customer_name || '-')}</div></div>
       <div class="field"><div class="label">電話番号</div><div class="value">${phoneLinkHtml(data.customer_phone)}</div></div>
       <div class="field"><div class="label">ストア</div><div class="value">${escapeHtml(data.store || '-')}</div></div>
       ${shipTimingToggleHtml()}
-      ${deliveryOptionsHtml(data.carrier)}
+      ${deliveryOptionsHtml(data.carrier, data.supports_delivery_date)}
       ${packageCountToggleHtml(data.supports_multi_piece)}
+      ${printPositionHtml(data.shipping_method_label === 'ネコポス')}
       <div class="field"><div class="label">送信先プリンター</div><div class="value" style="font-size:13px;">${escapeHtml(data.printer_name || '-')}</div></div>
       <button class="btn" id="btn-issue">送り状発行</button>
       <button class="btn secondary" id="btn-rescan">もう一度スキャン</button>
@@ -448,6 +491,7 @@
     wireShipTimingToggle();
     wireDeliveryOptions();
     wirePackageCountToggle(data.supports_multi_piece);
+    wirePrintPosition();
     document.getElementById('btn-issue').addEventListener('click', () => issueShipment(data.order_name));
     document.getElementById('btn-rescan').addEventListener('click', startCamera);
     showOnly(viewResult);
@@ -463,6 +507,7 @@
         delivery_date: selectedDeliveryDate,
         delivery_time_slot: selectedDeliveryTimeSlot,
         package_count: selectedPackageCount,
+        print_position: selectedPrintPosition,
       };
       if (override) payload.override = override;
       const res = await fetch('/api/scan/issue', {

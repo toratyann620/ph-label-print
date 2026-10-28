@@ -179,10 +179,15 @@ async def admin_processing(request: Request, synced: str = "", issued: str = "",
 
 
 @app.post("/admin/issue", include_in_schema=False)
-async def admin_issue(request: Request, order_ids: list[int] = Form(...)):
+async def admin_issue(request: Request, order_ids: list[int] = Form(default_factory=list)):
     """手動発行モード：処理状況一覧でチェックした注文の送り状をまとめて発行する"""
     if (redirect := _require_admin(request)) is not None:
         return redirect
+    if not order_ids:
+        # チェックを1件も付けずに送信された場合（FastAPIの自動バリデーションに任せると
+        # 生のJSONエラー画面が表示されてしまうため、他のフォーム送信エラーと同様に
+        # 呼び出し元へのリダイレクト＋トーストで知らせる）
+        return RedirectResponse(url="/admin/processing?issued=none", status_code=303)
     orders = db.get_orders_cache_by_ids(order_ids)
     count = 0
     for order in orders:
@@ -211,13 +216,13 @@ async def admin_pdf(request: Request, record_id: int):
 
 
 @app.get("/admin/history", response_class=HTMLResponse)
-async def admin_history(request: Request, fulfilled: str = ""):
+async def admin_history(request: Request, fulfilled: str = "", discarded: str = ""):
     if (redirect := _require_admin(request)) is not None:
         return redirect
     rows = db.list_shipments(statuses=["done"])
     return templates.TemplateResponse("admin/history.html", {
         "request": request, "active": "history", "counts": _nav_counts(),
-        "rows": rows, "fulfilled": fulfilled,
+        "rows": rows, "fulfilled": fulfilled, "discarded": discarded,
     })
 
 
@@ -272,18 +277,46 @@ async def admin_fulfill(
         store_name, shopify, order, store_errors = await find_order(record["order_name"])
         if not order:
             raise Exception(f"Shopify注文が見つかりません: {store_errors}")
-        await shopify.fulfill_order(
-            order["id"], record.get("yamato_tracking_no") or "", tracking_company,
-            notify_customer=notify, tracking_url=tracking_url,
-        )
-        status_text = "ok（メール送信あり）" if notify else "ok（メール送信なし）"
-        db.update_shipment_record(record_id, shopify_fulfillment_status=status_text)
-        result = "success"
+        if order.get("fulfillment_status") == "fulfilled":
+            # 何らかの理由（通信エラー後の再試行、Shopify側での手動操作等）で既にShopify上は
+            # 発送済みになっている場合、fulfill_order()を呼ぶと「対象の注文明細が見つかりません
+            # でした」という紛らわしいエラーになる。実態としては対応不要な状態なので、成功として
+            # 扱う（メール等は既に送信済みのはずで、ここから追加送信は行わない）
+            status_text = "ok（Shopify側で既に発送済みでした）"
+            db.update_shipment_record(record_id, shopify_fulfillment_status=status_text)
+            result = "success"
+        else:
+            await shopify.fulfill_order(
+                order["id"], record.get("yamato_tracking_no") or "", tracking_company,
+                notify_customer=notify, tracking_url=tracking_url,
+            )
+            status_text = "ok（メール送信あり）" if notify else "ok（メール送信なし）"
+            db.update_shipment_record(record_id, shopify_fulfillment_status=status_text)
+            result = "success"
     except Exception as e:
         db.update_shipment_record(record_id, shopify_fulfillment_status=f"failed: {e}")
         result = "failed"
 
     return RedirectResponse(url=f"{redirect_to}?fulfilled={result}", status_code=303)
+
+
+@app.post("/admin/discard", include_in_schema=False)
+async def admin_discard(
+    request: Request,
+    order_name: str = Form(...),
+    redirect_to: str = Form("/admin/history"),
+):
+    """
+    発行履歴画面から、発行済み送り状を「誤操作による破棄」扱いにする（スキャン画面の
+    破棄機能と同じ処理。ヤマト・佐川側の実データは取り消されない点は変わらない）。
+    """
+    if (redirect := _require_admin(request)) is not None:
+        return redirect
+    if redirect_to not in ("/admin/history", "/admin/processing"):
+        redirect_to = "/admin/history"
+    result = await discard_shipment_for_order_name(order_name.strip())
+    status = "success" if result.get("found") else "failed"
+    return RedirectResponse(url=f"{redirect_to}?discarded={status}", status_code=303)
 
 
 @app.get("/admin/errors", response_class=HTMLResponse)
@@ -457,15 +490,22 @@ async def api_scan_lookup(request: Request, body: ScanOrderRequest):
     shipping_method = db.classify_shipping_method(order.get("tags", ""))
     carrier = "sagawa" if shipping_method == "佐川" else "yamato"
 
-    # 個口数（2〜3）を選択できるのは、ヤマトの発払い("0")、佐川の通常発送（代引きでない場合）のみ。
+    # 個口数（2〜3）を選択できるのは、ヤマトの発払い("0")、佐川は代引き含め全て対応。
     # ヤマトの複数口は公式仕様書の伝票種別上「発払い（複数口）」という独立種別でのみ対応しており、
     # コレクト・ネコポス用の複数口種別は存在しない（実機確認済み：コレクトで試したところpackage_qty
     # が無視され、PDFが1ページのまま変化しなかった）。
+    # 佐川は代引き（代金引換）でも複数口設定が可能（現場確認済み。当初ヤマト・佐川が逆と誤認していた）。
     yamato_service_type = db.classify_yamato_service_type(order.get("tags", ""))
     if carrier == "sagawa":
-        supports_multi_piece = yamato_service_type != "2"
+        supports_multi_piece = True
     else:
         supports_multi_piece = yamato_service_type == "0"
+
+    # 到着日・時間帯の指定は、ヤマトのネコポスでは印字されない（公式仕様書：日付印字フラグは
+    # 「クロネコゆうメール、クロネコゆうパケット、ネコポスは0固定」、配達時間帯区分も対象の
+    # 送り状種類一覧にネコポスは含まれない）ため、指定しても反映されない。スマホ画面側で
+    # 選択できないようにする
+    supports_delivery_date = not (carrier == "yamato" and yamato_service_type == "A")
 
     return {
         "found": True,
@@ -479,7 +519,9 @@ async def api_scan_lookup(request: Request, body: ScanOrderRequest):
         "tracking_number": existing["yamato_tracking_no"] if existing else None,
         "printer_name": printer_name,
         "carrier": carrier,
+        "shipping_method_label": shipping_method,
         "supports_multi_piece": supports_multi_piece,
+        "supports_delivery_date": supports_delivery_date,
         "zip_mismatch": zip_mismatch,
         "zip_suggested_address": zip_suggested_address,
     }
@@ -503,6 +545,7 @@ async def api_scan_issue(request: Request, body: ScanOrderRequest):
         delivery_date=body.delivery_date,
         delivery_time_slot=body.delivery_time_slot,
         package_count=body.package_count,
+        print_position=body.print_position,
     )
 
     response = {

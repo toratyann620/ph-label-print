@@ -353,7 +353,7 @@ def _print_pdf_windows(pdf_path: str, printer_name: str | None) -> tuple[bool, s
 async def issue_yamato_pdf(
     client: httpx.AsyncClient, store_name: str, order_no: str, yamato_req, order_name: str = "",
     shipment_date: str | None = None, delivery_date_override: str = "", delivery_time_zone: str = "",
-    package_count: int = 1,
+    package_count: int = 1, print_position: str = "",
 ) -> tuple[bool, dict]:
     """ヤマトB2クラウドAPIで送り状を発行し、PDFを出力フォルダへ保存する"""
     ship_date = shipment_date or datetime.now().strftime("%Y%m%d")
@@ -418,6 +418,7 @@ async def issue_yamato_pdf(
             "consignee_zip_code":           yamato_req.recipient_zip.replace("-", ""),
             "consignee_address":            yamato_req.recipient_address,
             "consignee_address4":           yamato_req.recipient_address2,
+            "consignee_department1":        yamato_req.recipient_company,
             "item_name1":                   yamato_req.item_name,
             "item_name2":                   "",
             # 荷扱い1・2（handling_information1/2）は常に「取扱注意」「天地無用」を印字する
@@ -490,8 +491,14 @@ async def issue_yamato_pdf(
             "entry": issue_entries,
         }
     }
+    # print_position: ネコポス(A4 6面付け)の印刷開始位置（1〜6）。使用済み(印刷済み)の
+    # ラベル分をスキップして、残りの面から印刷したい場合に使う（公式仕様書 print_position
+    # パラメータ。例: print_position=2 なら位置1を飛ばして位置2から印刷する）
+    new_url = f"{BASE_URL}/b2/p/new?issue_editA&display=0&print_type={print_type}"
+    if print_type == "A" and print_position:
+        new_url += f"&print_position={print_position}"
     r2 = await client.post(
-        f"{BASE_URL}/b2/p/new?issue_editA&display=0&print_type={print_type}",
+        new_url,
         headers={"X-Requested-With": "XMLHttpRequest", "Content-Type": "application/json"},
         json=issue_payload,
     )
@@ -570,6 +577,7 @@ async def issue_for_order_name(
     delivery_date: str = "",
     delivery_time_slot: str = "",
     package_count: int = 1,
+    print_position: str = "",
 ) -> dict:
     """
     注文番号（Shopify注文名, 例: "#P33986"）1件を、Shopify注文検索〜ヤマト送り状発行〜
@@ -727,7 +735,7 @@ async def issue_for_order_name(
             success, result = await issue_yamato_pdf(
                 client, store_name, order_no, yamato_req, order_name, shipment_date,
                 delivery_date_override=delivery_date, delivery_time_zone=delivery_time_slot,
-                package_count=package_count,
+                package_count=package_count, print_position=print_position,
             )
 
         if not success:
