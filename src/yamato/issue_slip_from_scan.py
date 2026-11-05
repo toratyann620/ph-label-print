@@ -268,20 +268,29 @@ def _flatten_pdf_for_print(pdf_path: str, dpi: int = 300) -> str:
     SumatraPDF・PyMuPDF はいずれもPDF内蔵JavaScriptを実行しないため、このマスクが
     残ったまま描画・印刷され、結果的に白紙になる（Chrome/Adobe ReaderなどJS実行対応の
     ビューアでは正常に見える）。印刷前にこのマスク注釈を明示的に除去してから描画する。
+
+    また、print_type=m5（A5マルチ印刷）で生成されるページは横長（ランドスケープ）になるが、
+    現場のプリンターにはA5の用紙を縦（ポートレート）向きにセットしているため、ここで90度
+    回転して縦長ページとして出力する（印刷前に、プリンター側の向きに合わせて補正する）。
     """
     try:
         import fitz  # PyMuPDF
         src = fitz.open(pdf_path)
         out = fitz.open()
         zoom = dpi / 72
-        matrix = fitz.Matrix(zoom, zoom)
         for page in src:
             for widget in list(page.widgets() or []):
                 if widget.field_name and widget.field_name.startswith("$Mask"):
                     page.delete_widget(widget)
+            is_landscape = page.rect.width > page.rect.height
+            if is_landscape:
+                matrix = fitz.Matrix(zoom, zoom).prerotate(90)
+                new_page = out.new_page(width=page.rect.height, height=page.rect.width)
+            else:
+                matrix = fitz.Matrix(zoom, zoom)
+                new_page = out.new_page(width=page.rect.width, height=page.rect.height)
             pix = page.get_pixmap(matrix=matrix)
-            new_page = out.new_page(width=page.rect.width, height=page.rect.height)
-            new_page.insert_image(page.rect, pixmap=pix)
+            new_page.insert_image(new_page.rect, pixmap=pix)
         flattened_path = os.path.join(tempfile.gettempdir(), f"print_{os.path.basename(pdf_path)}")
         out.save(flattened_path, deflate=True)
         out.close()
