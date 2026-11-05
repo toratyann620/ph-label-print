@@ -210,13 +210,18 @@ def _check_sagawa_address_fit(sagawa_req: dict) -> dict | None:
 
 
 def _apply_recipient_override_yamato(yamato_req, override: dict):
-    """スマホ画面で確認・修正された宛先情報で上書きする"""
-    lines = list(override.get("address_lines") or [])
+    """
+    スマホ画面で確認・修正された宛先情報で上書きする。
+    スマホ画面は住所1〜3行目を入力できるが、ヤマトには住所欄（consignee_address）・
+    建物名欄（consignee_address4）の2項目しかないため、2・3行目はまとめて建物名欄に渡す
+    （以前は3行目が無視され、手入力した内容が送り状に反映されない不具合があった）。
+    """
+    lines = (list(override.get("address_lines") or []) + ["", "", ""])[:3]
     yamato_req.recipient_name = override["recipient_name"]
     yamato_req.recipient_zip = override["recipient_zip"]
     yamato_req.recipient_phone = override["recipient_phone"]
-    yamato_req.recipient_address = lines[0] if len(lines) > 0 else ""
-    yamato_req.recipient_address2 = lines[1] if len(lines) > 1 else ""
+    yamato_req.recipient_address = lines[0]
+    yamato_req.recipient_address2 = "".join(l for l in lines[1:] if l)
     return yamato_req
 
 
@@ -466,9 +471,12 @@ async def issue_yamato_pdf(
         return False, {"step": "editA_check", "errors": all_errors}
 
     # Step 2: 送り状発行
-    # print_type: ネコポス(A)は専用レイアウト(A4 6面付け)固定、それ以外(発払い/コレクト/複数口等)はA4マルチ印刷
+    # print_type: ネコポス(A)は専用レイアウト(A4 6面付け)固定、それ以外(発払い/コレクト/複数口等)は
+    # A5マルチ印刷(m5)。現場のプリンターの実際の用紙サイズがA5であるため、A4マルチ(m)を指定すると
+    # A4キャンバス前提のレイアウトで出力され、2個口以上の場合に2枚目以降がA5の印刷範囲外になり
+    # 印刷されない不具合が発生していた(1個口では偶然範囲内に収まっていたため気づかれなかった)。
     service_type_resolved = entries[0].get("shipment", {}).get("service_type", "0")
-    print_type = "A" if service_type_resolved == "A" else "m"
+    print_type = "A" if service_type_resolved == "A" else "m5"
 
     issue_entries = []
     for idx, e in enumerate(entries):
