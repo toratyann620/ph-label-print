@@ -420,9 +420,9 @@
     }
 
     if (data.already_issued) {
-      // 二重発行防止: スキャン画面からは一切印刷できない。同じ注文番号を再度発行したい場合は、
-      // 管理画面の発行履歴から該当の送り状を「誤操作による破棄」した上で、改めてスキャンする
-      // 必要がある（通信エラー後の再スキャンによる二重印刷を防ぐため、「再印刷する」は廃止）。
+      // 二重「発行」防止: ヤマト/佐川への新規発行（＝スキャン画面からの通常発行フロー）は
+      // ここでは行わせない。一方で、発行済みの送り状をそのまま印刷し直す「再印刷」は、
+      // 通信エラー時のプリンタートラブル対応等で必要なため許可する（再発行とは別物）。
       resultCard.innerHTML = `
         <div class="kicker">読み取り結果</div>
         <div class="order-name">${escapeHtml(data.order_name)}</div>
@@ -430,9 +430,39 @@
         <div class="field"><div class="label">お客様名</div><div class="value">${escapeHtml(data.customer_name || '-')}</div></div>
         <div class="field"><div class="label">電話番号</div><div class="value">${phoneLinkHtml(data.customer_phone)}</div></div>
         <div class="field"><div class="label">伝票番号</div><div class="value">${escapeHtml(data.tracking_number || '-')}</div></div>
-        <div class="warn-banner">この注文番号は既に送り状を発行済みのため、スキャン画面からは印刷できません。二重発行を防ぐための制限です。改めて発行・印刷が必要な場合は、管理画面の「発行履歴」で該当の送り状を破棄してから、もう一度スキャンしてください。</div>
+        <div class="hint" style="margin-bottom:8px;">※直前に通信エラーが出てからの再スキャンの場合、実際には発行・印刷が完了している可能性があります。「再印刷する」を押す前に、既に印刷されていないかご確認ください（二重印刷の原因になります）。送り状を改めて発行（新規登録）したい場合は、管理画面の「発行履歴」で該当の送り状を破棄してから、もう一度スキャンしてください。</div>
+        <button class="btn" id="btn-reprint">再印刷する</button>
         <button class="btn secondary" id="btn-rescan">もう一度スキャン</button>
       `;
+      document.getElementById('btn-reprint').addEventListener('click', () => reprintShipment(data.order_name));
+      document.getElementById('btn-rescan').addEventListener('click', startCamera);
+      showOnly(viewResult);
+      return;
+    }
+
+    if (data.address_duplicate) {
+      resultCard.innerHTML = `
+        <div class="kicker">読み取り結果</div>
+        <div class="order-name">${escapeHtml(data.order_name)} ${carrierBadgeHtml(data.shipping_method_label)}</div>
+        <div class="warn-banner">住所の重複を検知しました。住所欄に同じ内容が二重に入力されている可能性があります。内容をご確認のうえ、修正してください。</div>
+        <div class="field"><div class="label">電話番号</div><div class="value">${phoneLinkHtml(data.customer_phone)}</div></div>
+        ${addressFormFieldsHtml({
+          name: data.customer_name, zip: data.customer_zip, phone: data.customer_phone,
+          lines: [data.customer_address || '', '', ''],
+        })}
+        ${shipTimingToggleHtml()}
+        ${deliveryOptionsHtml(data.carrier, data.supports_delivery_date)}
+        ${packageCountToggleHtml(data.supports_multi_piece)}
+        ${printPositionHtml(data.shipping_method_label === 'ネコポス')}
+        <div class="field"><div class="label">送信先プリンター</div><div class="value" style="font-size:13px;">${escapeHtml(data.printer_name || '-')}</div></div>
+        <button class="btn" id="btn-issue">送り状発行</button>
+        <button class="btn secondary" id="btn-rescan">もう一度スキャン</button>
+      `;
+      wireShipTimingToggle();
+      wireDeliveryOptions();
+      wirePackageCountToggle(data.supports_multi_piece);
+      wirePrintPosition();
+      document.getElementById('btn-issue').addEventListener('click', () => issueShipment(data.order_name, collectAddressFormValues()));
       document.getElementById('btn-rescan').addEventListener('click', startCamera);
       showOnly(viewResult);
       return;

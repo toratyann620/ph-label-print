@@ -496,6 +496,16 @@ async def api_scan_lookup(request: Request, body: ScanOrderRequest):
             zip_mismatch = True
             zip_suggested_address = zip_result
 
+    # 市区町村(city)と番地(address1)に同じ内容が重複入力されているケースを検知する
+    # （#E9030: city=address1="宝塚市光ガ丘1-15-11" となっており、送り状の住所表記が
+    #  「兵庫県宝塚市光ガ丘1-15-11宝塚市光ガ丘1-15-11」のように二重になっていた）。
+    # address1側にcity名がそのまま含まれているだけの部分一致ケースも拾う。
+    city_text = (recipient["city"] or "").strip()
+    address1_text = (recipient["address1"] or "").strip()
+    address_duplicate = bool(city_text and address1_text) and (
+        city_text == address1_text or (len(city_text) >= 3 and city_text in address1_text)
+    )
+
     store_settings = db.get_store_settings(store_name)
     printer_name = (store_settings or {}).get("printer_name") or DEFAULT_PRINTER_NAME
 
@@ -538,6 +548,7 @@ async def api_scan_lookup(request: Request, body: ScanOrderRequest):
         "supports_delivery_date": supports_delivery_date,
         "zip_mismatch": zip_mismatch,
         "zip_suggested_address": zip_suggested_address,
+        "address_duplicate": address_duplicate,
     }
 
 

@@ -284,7 +284,8 @@ def _flatten_pdf_for_print(pdf_path: str, dpi: int = 300) -> str:
                     page.delete_widget(widget)
             is_landscape = page.rect.width > page.rect.height
             if is_landscape:
-                matrix = fitz.Matrix(zoom, zoom).prerotate(90)
+                # 90度回転では上下が逆（実機確認済み）だったため、270度(=90+180)回転する
+                matrix = fitz.Matrix(zoom, zoom).prerotate(270)
                 new_page = out.new_page(width=page.rect.height, height=page.rect.width)
             else:
                 matrix = fitz.Matrix(zoom, zoom)
