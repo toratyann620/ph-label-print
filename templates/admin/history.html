@@ -16,6 +16,33 @@
     border: 1px solid #e3a99a; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;
   }
   .discard-btn:hover { background: #fdeceb; }
+
+  /* PC: 横スクロールしても「ID」(左端)と「操作」(右端)だけは常に見える位置に固定する。
+     「誤操作による破棄」ボタンを見るために毎回右端までスクロールする必要があった不具合の対応。 */
+  .history-table th:first-child, .history-table td:first-child {
+    position: sticky; left: 0; z-index: 2; background: #fff; border-right: 1px solid #ebebeb;
+  }
+  .history-table th:last-child, .history-table td:last-child {
+    position: sticky; right: 0; z-index: 2; background: #fff; border-left: 1px solid #ebebeb;
+  }
+  .history-table thead th:first-child, .history-table thead th:last-child { z-index: 3; background: #fff; }
+
+  /* スマホ: 横スクロールの代わりに、1行=1カードの縦積みレイアウトに切り替える。
+     各セルの data-label 属性をラベルとして表示するため、横スクロール自体が発生しない。 */
+  @media (max-width: 760px) {
+    .history-table thead { display: none; }
+    .history-table, .history-table tbody, .history-table tr, .history-table td { display: block; width: 100%; }
+    .history-table tr {
+      margin-bottom: 14px; border: 1px solid #eee; border-radius: 10px; padding: 4px 14px; background: #fff;
+    }
+    .history-table td {
+      position: static; padding: 8px 0; border-bottom: 1px solid #f5f5f5; border-right: none; border-left: none;
+    }
+    .history-table td:last-child { border-bottom: none; padding-top: 12px; }
+    .history-table td::before {
+      content: attr(data-label); display: block; font-weight: 600; color: #888; font-size: 11px; margin-bottom: 4px;
+    }
+  }
 </style>
 {% endblock %}
 {% block content %}
@@ -29,7 +56,7 @@
 
   <div class="card">
     {% if rows %}
-    <table>
+    <table class="history-table">
       <thead>
         <tr>
           <th>ID</th>
@@ -50,33 +77,33 @@
       <tbody>
         {% for row in rows %}
         <tr>
-          <td>{{ row.id }}</td>
-          <td>{{ row.updated_at[:19] }}</td>
-          <td>{{ row.order_name or '-' }}</td>
-          <td>{{ row.store or '-' }}</td>
-          <td>
+          <td data-label="ID">{{ row.id }}</td>
+          <td data-label="発行日時">{{ row.updated_at[:19] }}</td>
+          <td data-label="注文番号">{{ row.order_name or '-' }}</td>
+          <td data-label="ストア">{{ row.store or '-' }}</td>
+          <td data-label="配送業者">
             {% if row.carrier == 'sagawa' %}
             <span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600;background:#eef2ff;color:#3b3fc7;">佐川</span>
             {% else %}
             <span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600;background:#fff1e6;color:#b3590a;">ヤマト</span>
             {% endif %}
           </td>
-          <td>{{ row.recipient_name or '-' }}</td>
-          <td>{{ row.yamato_tracking_no or '-' }}</td>
-          <td>{{ row.yamato_issue_no or '-' }}</td>
-          <td>
+          <td data-label="お届け先">{{ row.recipient_name or '-' }}</td>
+          <td data-label="伝票番号">{{ row.yamato_tracking_no or '-' }}</td>
+          <td data-label="発行番号">{{ row.yamato_issue_no or '-' }}</td>
+          <td data-label="PDF">
             {% if row.pdf_path %}
             <a class="pdf-link" href="/admin/pdf/{{ row.id }}" target="_blank">開く</a>
             {% else %}-{% endif %}
           </td>
-          <td>
+          <td data-label="Shopifyタグ付与">
             {% if row.tag_status == 'ok' %}
             <span class="badge-status badge-done">付与済</span>
             {% elif row.tag_status %}
             <span class="badge-status badge-error" title="{{ row.tag_status }}">失敗</span>
             {% else %}-{% endif %}
           </td>
-          <td>
+          <td data-label="発送済み(Shopify)">
             {% if row.shopify_fulfillment_status and row.shopify_fulfillment_status.startswith('ok') %}
             <span class="badge-status badge-done">発送済み</span>
             <div style="font-size:10px;color:#999;margin-top:2px;">{{ row.shopify_fulfillment_status }}</div>
@@ -94,7 +121,7 @@
             </form>
             {% endif %}
           </td>
-          <td>
+          <td data-label="Ship&amp;co照合">
             {% if row.compare_status == 'match' %}
             <span class="badge-status badge-done">一致 100%</span>
             {% elif row.compare_status == 'mismatch' %}
@@ -109,7 +136,7 @@
             </details>
             {% endif %}
           </td>
-          <td>
+          <td data-label="操作">
             <form method="post" action="/admin/discard" onsubmit="return confirm('{{ row.order_name }} を破棄扱いにしますか？\n※ヤマト・佐川側の伝票データは取り消されません。既に印刷した紙の送り状は物理的に破棄してください。\n破棄すると同じ注文番号を再度スキャン・発行できるようになります。');">
               <input type="hidden" name="order_name" value="{{ row.order_name }}">
               <input type="hidden" name="redirect_to" value="/admin/history">
